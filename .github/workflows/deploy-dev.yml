@@ -6,15 +6,15 @@ on:
 env:
   AWS_REGION: us-east-1
   ECR_REPOSITORY: envoy-email-service-dev
-  ECS_CLUSTER: envoy-dev
-  ECS_SERVICE: envoy-email-service-dev
-  TASK_DEFINITION_FAMILY: envoy-email-service-dev
-  CONTAINER_NAME: envoy-email-service-dev
+  LAMBDA_FUNCTION_NAME: envoy-email-service-dev
   IMAGE_ALIAS: latest
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
 
     steps:
       - name: Checkout code
@@ -46,23 +46,14 @@ jobs:
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_ALIAS
 
-      - name: Register new task definition
-        id: register-td
+      - name: Update Lambda function image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.event.pull_request.head.sha }}
         run: |
-          aws ecs describe-task-definition --task-definition "$TASK_DEFINITION_FAMILY" > td.json
-          jq --arg IMG "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" --arg NAME "$CONTAINER_NAME" \
-            '.taskDefinition | {family:.family, taskRoleArn:.taskRoleArn, executionRoleArn:.executionRoleArn, networkMode:.networkMode, containerDefinitions:(.containerDefinitions | map(if .name==$NAME then .image=$IMG else . end)), requiresCompatibilities:.requiresCompatibilities, cpu:.cpu, memory:.memory, volumes:.volumes}' td.json > register.json
-          aws ecs register-task-definition --cli-input-json file://register.json > registered.json
-          echo "task_definition=$(jq -r .taskDefinition.taskDefinitionArn registered.json)" >> "$GITHUB_OUTPUT"
-
-      - name: Update ECS service
-        run: |
-          aws ecs update-service \
-            --cluster "$ECS_CLUSTER" \
-            --service "$ECS_SERVICE" \
-            --task-definition "${{ steps.register-td.outputs.task_definition }}" \
-            --desired-count 1 \
-            --force-new-deployment
+          IMAGE_URI="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          aws lambda update-function-code \
+            --function-name "$LAMBDA_FUNCTION_NAME" \
+            --image-uri "$IMAGE_URI"
+          aws lambda wait function-updated \
+            --function-name "$LAMBDA_FUNCTION_NAME"
