@@ -17,7 +17,9 @@ npm install
 npm start
 ```
 
-The local HTTP wrapper runs on port `3000` by default. Set `PORT` to override it. Set `EMAIL_SERVICE_API_KEY` to require `Authorization: Bearer <token>` on requests.
+The local HTTP wrapper runs on port `3000` by default. Set `PORT` to override it. Set `EMAIL_SERVICE_API_KEY` to the SSM Parameter Store name that contains the API key to require `Authorization: Bearer <token>` on requests. Leave it unset to disable local auth.
+
+When deployed, the runtime role needs `ssm:GetParameter` for that parameter and `kms:Decrypt` if the value is stored as a `SecureString` encrypted with a customer-managed key.
 
 ## Build
 

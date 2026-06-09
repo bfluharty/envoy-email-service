@@ -7,11 +7,11 @@ on:
 
 env:
   AWS_REGION: us-east-1
-  ECR_REPOSITORY: envoy-reasoning-engine-prod
+  ECR_REPOSITORY: envoy-email-service-prod
   ECS_CLUSTER: envoy-prod-east
-  ECS_SERVICE: envoy-reasoning-engine-prod-east
-  TASK_DEFINITION_FAMILY: envoy-reasoning-engine-prod-east
-  CONTAINER_NAME: envoy-reasoning-engine-prod
+  ECS_SERVICE: envoy-email-service-prod-east
+  TASK_DEFINITION_FAMILY: envoy-email-service-prod-east
+  CONTAINER_NAME: envoy-email-service-prod
   IMAGE_ALIAS: latest
 
 jobs:
