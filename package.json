@@ -24,6 +24,7 @@
     "*.{json,md,yml,yaml}": "prettier --write"
   },
   "dependencies": {
+    "@aws-sdk/client-ssm": "^3.1064.0",
     "@microsoft/microsoft-graph-client": "^3.0.7",
     "googleapis": "^144.0.0"
   },

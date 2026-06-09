@@ -7,18 +7,35 @@ import {
   validateInboxList,
   validateSendOnBehalf,
 } from './utils/request-validation.js';
+import { getDecryptedParameter } from './utils/parameter-store.js';
 
-const API_KEY = process.env.EMAIL_SERVICE_API_KEY ?? '';
+const API_KEY_PARAMETER_NAME = process.env.EMAIL_SERVICE_API_KEY ?? '';
 
-function checkAuth(event: APIGatewayProxyEventV2): void {
-  if (!API_KEY || API_KEY === '') {
+class UnauthorizedError extends Error {
+  constructor() {
+    super('Unauthorized');
+    this.name = 'UnauthorizedError';
+  }
+}
+
+async function getConfiguredApiKey(): Promise<string | null> {
+  if (!API_KEY_PARAMETER_NAME.trim()) {
+    return null;
+  }
+
+  return getDecryptedParameter(API_KEY_PARAMETER_NAME);
+}
+
+async function checkAuth(event: APIGatewayProxyEventV2): Promise<void> {
+  const apiKey = await getConfiguredApiKey();
+  if (!apiKey) {
     return;
   }
 
   const auth = event.headers?.authorization ?? event.headers?.Authorization ?? '';
   const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-  if (token !== API_KEY) {
-    throw new Error('Unauthorized');
+  if (token !== apiKey) {
+    throw new UnauthorizedError();
   }
 }
 
@@ -48,9 +65,14 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
   }
 
   try {
-    checkAuth(event);
+    await checkAuth(event);
   } catch (err) {
-    return jsonResponse(401, { error: err instanceof Error ? err.message : 'Unauthorized' });
+    if (err instanceof UnauthorizedError) {
+      return jsonResponse(401, { error: err.message });
+    }
+
+    console.error('Failed to load email service API key from Parameter Store:', err);
+    return jsonResponse(500, { error: 'Failed to load email service API key' });
   }
 
   const rawBody = getRawBody(event);
