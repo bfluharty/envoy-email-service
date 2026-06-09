@@ -1,0 +1,21 @@
+#!/usr/bin/env sh
+
+# Try to use fnm if available, fallback to system node
+if command -v fnm > /dev/null 2>&1; then
+  eval "$(fnm env --use-on-cd)"
+  fnm use default 2>/dev/null || true
+fi
+
+echo "Running lint-staged auto-fixes..."
+
+if command -v npx > /dev/null 2>&1; then
+  npx lint-staged --no-stash
+elif [ -f "./node_modules/.bin/lint-staged" ]; then
+  node ./node_modules/.bin/lint-staged --no-stash
+else
+  echo "Error: Could not run lint-staged. Install fast node manager (fnm) or ensure npx is available." >&2
+  exit 1
+fi
+
+echo "Running type check..."
+npm run typecheck
