@@ -1,0 +1,19 @@
+{
+  "name": "envoy-email-service",
+  "version": "1.0.0",
+  "description": "Lambda + HTTP API for send-on-behalf and inbox. Called by envoy-project-management.",
+  "private": true,
+  "scripts": {
+    "prepare-lambda": "cp -r node_modules EmailFunction/ 2>/dev/null || (echo 'Run npm install at repo root first.' && exit 1)",
+    "test": "node --test test/**/*.test.js"
+  },
+  "dependencies": {
+    "googleapis": "^144.0.0",
+    "@microsoft/microsoft-graph-client": "^3.0.7"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.145",
+    "@types/node": "^20.10.0",
+    "typescript": "^5.6.3"
+  }
+}
