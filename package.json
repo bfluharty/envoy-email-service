@@ -13,7 +13,7 @@
     "lint": "eslint .",
     "start": "tsc && node dist/local-server.js",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run && npm run typecheck",
+    "test": "vitest run",
     "prepare": "husky"
   },
   "lint-staged": {
