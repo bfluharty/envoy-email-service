@@ -61,6 +61,10 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
   const path = event.requestContext?.http?.path ?? event.rawPath ?? '';
   const method = event.requestContext?.http?.method ?? '';
 
+  if (method === 'GET' && path.endsWith('/health')) {
+    return jsonResponse(200, { status: 'ok' });
+  }
+
   if (method !== 'POST') {
     return jsonResponse(405, { error: 'Method Not Allowed' });
   }

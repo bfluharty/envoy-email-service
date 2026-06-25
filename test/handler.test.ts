@@ -54,6 +54,20 @@ beforeEach(() => {
 });
 
 describe('handler - method guard', () => {
+  it('returns 200 for GET /health without auth', async () => {
+    process.env.EMAIL_SERVICE_API_KEY = '/some/param';
+    const event = makeEvent({
+      rawPath: '/health',
+      requestContext: {
+        ...makeEvent().requestContext,
+        http: { method: 'GET', path: '/health', protocol: 'HTTP/1.1', sourceIp: '1.2.3.4', userAgent: 'test' },
+      },
+    });
+    const res = await handler(event);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body ?? '{}')).toEqual({ status: 'ok' });
+  });
+
   it('returns 405 for GET', async () => {
     const event = makeEvent({
       requestContext: {
