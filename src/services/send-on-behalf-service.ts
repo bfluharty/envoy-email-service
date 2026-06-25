@@ -1,6 +1,7 @@
 import { Client, AuthProvider } from '@microsoft/microsoft-graph-client';
 import { google } from 'googleapis';
 import { SendOnBehalfRequest, SendOnBehalfResponse } from '../models/email.js';
+import { logger } from '../utils/logger.js';
 
 function createMicrosoftClient(accessToken: string) {
   const authProvider: AuthProvider = (done) => {
@@ -38,7 +39,9 @@ export async function sendViaGmail(body: SendOnBehalfRequest): Promise<SendOnBeh
     requestBody,
   });
 
-  return { messageId: res.data.id ?? '' };
+  const messageId = res.data.id ?? '';
+  logger.info('gmail send complete', { provider: 'gmail', to: body.to, messageId });
+  return { messageId };
 }
 
 export async function sendViaMicrosoft(body: SendOnBehalfRequest): Promise<SendOnBehalfResponse> {
@@ -69,11 +72,13 @@ export async function sendViaMicrosoft(body: SendOnBehalfRequest): Promise<SendO
   if (headers.length > 0) message.internetMessageHeaders = headers;
 
   await client.api('/me/sendMail').post({ message });
+  // Microsoft Graph /sendMail does not return the sent message ID
+  logger.info('microsoft send complete', { provider: 'microsoft', to: body.to });
   return { messageId: '' };
 }
 
 export async function sendOnBehalf(body: SendOnBehalfRequest): Promise<SendOnBehalfResponse> {
-  console.log('sendOnBehalf: provider=%s to=%s subject=%s', body.provider, body.to, body.subject);
+  logger.info('sendOnBehalf start', { provider: body.provider, to: body.to, subject: body.subject });
 
   if (body.provider === 'gmail') {
     return sendViaGmail(body);

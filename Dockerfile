@@ -32,4 +32,4 @@ ENV NODE_ENV=production
 
 USER appuser
 
-CMD ["node", "dist/local-server.js"]
+CMD ["dist/index.handler"]

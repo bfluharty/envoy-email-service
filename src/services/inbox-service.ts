@@ -7,6 +7,7 @@ import {
   InboxListResponse,
   InboxMessageSummary,
 } from '../models/email.js';
+import { logger } from '../utils/logger.js';
 
 const DEFAULT_MAX = 50;
 
@@ -102,12 +103,19 @@ async function listGmail(body: InboxListRequest): Promise<InboxListResponse> {
 
   const list = await gmail.users.messages.list({ userId: 'me', maxResults, q: q.join(' ') });
   const messages = list.data.messages ?? [];
+
+  // Fetch metadata only (no body) concurrently — avoids downloading full message payloads
   const items = await Promise.all(
     messages.map(async (message): Promise<InboxMessageSummary | null> => {
       if (!message.id) return null;
 
-      const full = await gmail.users.messages.get({ userId: 'me', id: message.id });
-      const headers = full.data.payload?.headers;
+      const meta = await gmail.users.messages.get({
+        userId: 'me',
+        id: message.id,
+        format: 'metadata',
+        metadataHeaders: ['From', 'To', 'Subject', 'Date'],
+      });
+      const headers = meta.data.payload?.headers;
 
       return {
         id: message.id,
@@ -116,7 +124,7 @@ async function listGmail(body: InboxListRequest): Promise<InboxListResponse> {
         to: getGmailHeader(headers, 'To'),
         subject: getGmailHeader(headers, 'Subject'),
         date: getGmailHeader(headers, 'Date'),
-        snippet: full.data.snippet || undefined,
+        snippet: meta.data.snippet || undefined,
       };
     })
   );
@@ -168,8 +176,7 @@ export async function inboxList(body: InboxListRequest): Promise<InboxListRespon
     throw new Error(`Unknown provider: ${body.provider}`);
   }
 
-  const count = result.messages.length;
-  console.log(`inbox list: ${body.provider} returned ${count} messages`);
+  logger.info('inbox list complete', { provider: body.provider, count: result.messages.length });
   return result;
 }
 
@@ -178,75 +185,89 @@ async function getGmail(body: InboxGetMessageRequest): Promise<InboxGetMessageRe
   oauth2.setCredentials({ access_token: body.accessToken });
   const gmail = google.gmail({ version: 'v1', auth: oauth2 });
 
-  try {
-    const res = await gmail.users.messages.get({ userId: 'me', id: body.messageId });
-    const payload = res.data.payload;
-    if (!payload) return { message: null };
+  const res = await gmail.users.messages.get({ userId: 'me', id: body.messageId });
+  const payload = res.data.payload;
+  if (!payload) return { message: null };
 
-    const headers = payload.headers;
-    const dateHeader = getGmailHeader(headers, 'Date');
-    const messageIdHeader = getGmailHeader(headers, 'Message-ID');
-    const referencesHeader = getGmailHeader(headers, 'References');
+  const headers = payload.headers;
+  const dateHeader = getGmailHeader(headers, 'Date');
+  const messageIdHeader = getGmailHeader(headers, 'Message-ID');
+  const referencesHeader = getGmailHeader(headers, 'References');
 
-    return {
-      message: {
-        id: res.data.id ?? '',
-        from: getGmailHeader(headers, 'From'),
-        to: getGmailHeader(headers, 'To'),
-        cc: getGmailHeader(headers, 'Cc') || undefined,
-        subject: getGmailHeader(headers, 'Subject'),
-        body: getGmailBodyText(payload),
-        date: dateHeader ? toIsoDateOrNow(dateHeader) : new Date().toISOString(),
-        messageId: messageIdHeader || undefined,
-        references: referencesHeader || undefined,
-      },
-    };
-  } catch {
-    return { message: null };
-  }
+  return {
+    message: {
+      id: res.data.id ?? '',
+      from: getGmailHeader(headers, 'From'),
+      to: getGmailHeader(headers, 'To'),
+      cc: getGmailHeader(headers, 'Cc') || undefined,
+      subject: getGmailHeader(headers, 'Subject'),
+      body: getGmailBodyText(payload),
+      date: dateHeader ? toIsoDateOrNow(dateHeader) : new Date().toISOString(),
+      messageId: messageIdHeader || undefined,
+      references: referencesHeader || undefined,
+    },
+  };
 }
 
 async function getMicrosoft(body: InboxGetMessageRequest): Promise<InboxGetMessageResponse> {
   const client = createMicrosoftClient(body.accessToken);
 
-  try {
-    const message = (await client
-      .api(`/me/messages/${body.messageId}`)
-      .select('id,from,toRecipients,ccRecipients,subject,body,receivedDateTime,internetMessageHeaders')
-      .get()) as MicrosoftMessage;
-    const from = message.from?.emailAddress?.address ?? '';
-    const to = (message.toRecipients ?? [])
+  const message = (await client
+    .api(`/me/messages/${body.messageId}`)
+    .select('id,from,toRecipients,ccRecipients,subject,body,receivedDateTime,internetMessageHeaders')
+    .get()) as MicrosoftMessage;
+
+  const from = message.from?.emailAddress?.address ?? '';
+  const to = (message.toRecipients ?? [])
+    .map((recipient) => recipient.emailAddress?.address)
+    .filter(Boolean)
+    .join(', ');
+  const cc =
+    (message.ccRecipients ?? [])
       .map((recipient) => recipient.emailAddress?.address)
       .filter(Boolean)
-      .join(', ');
-    const cc =
-      (message.ccRecipients ?? [])
-        .map((recipient) => recipient.emailAddress?.address)
-        .filter(Boolean)
-        .join(', ') || undefined;
-    const messageIdHeader = getMicrosoftHeader(message.internetMessageHeaders, 'Message-ID');
-    const referencesHeader = getMicrosoftHeader(message.internetMessageHeaders, 'References');
+      .join(', ') || undefined;
+  const messageIdHeader = getMicrosoftHeader(message.internetMessageHeaders, 'Message-ID');
+  const referencesHeader = getMicrosoftHeader(message.internetMessageHeaders, 'References');
 
-    return {
-      message: {
-        id: message.id ?? '',
-        from,
-        to,
-        cc,
-        subject: message.subject ?? '',
-        body: message.body?.content ?? '',
-        date: message.receivedDateTime ? toIsoDateOrNow(message.receivedDateTime) : new Date().toISOString(),
-        messageId: messageIdHeader || undefined,
-        references: referencesHeader || undefined,
-      },
-    };
-  } catch {
-    return { message: null };
-  }
+  return {
+    message: {
+      id: message.id ?? '',
+      from,
+      to,
+      cc,
+      subject: message.subject ?? '',
+      body: message.body?.content ?? '',
+      date: message.receivedDateTime ? toIsoDateOrNow(message.receivedDateTime) : new Date().toISOString(),
+      messageId: messageIdHeader || undefined,
+      references: referencesHeader || undefined,
+    },
+  };
 }
 
 export async function inboxGetMessage(body: InboxGetMessageRequest): Promise<InboxGetMessageResponse> {
-  if (body.provider === 'gmail') return getGmail(body);
-  if (body.provider === 'microsoft') return getMicrosoft(body);
+  if (body.provider === 'gmail') {
+    try {
+      return await getGmail(body);
+    } catch (err) {
+      const status =
+        (err as { code?: number; status?: number })?.code ?? (err as { code?: number; status?: number })?.status;
+      if (status === 404) return { message: null };
+      logger.error('gmail getMessage failed', { provider: 'gmail', messageId: body.messageId, err });
+      throw err;
+    }
+  }
+
+  if (body.provider === 'microsoft') {
+    try {
+      return await getMicrosoft(body);
+    } catch (err) {
+      const status = (err as { statusCode?: number })?.statusCode;
+      if (status === 404) return { message: null };
+      logger.error('microsoft getMessage failed', { provider: 'microsoft', messageId: body.messageId, err });
+      throw err;
+    }
+  }
+
   throw new Error(`Unknown provider: ${body.provider}`);
 }
