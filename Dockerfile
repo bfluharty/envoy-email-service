@@ -26,7 +26,7 @@ COPY --chown=appuser:appgroup --from=prod-deps /usr/src/app/node_modules ./node_
 COPY --chown=appuser:appgroup --from=builder /usr/src/app/dist ./dist
 COPY --chown=appuser:appgroup package.json package-lock.json ./
 
-EXPOSE 3000
+EXPOSE 8083
 
 ENV NODE_ENV=production
 

@@ -6,7 +6,7 @@ Transactional email is sent by envoy-project-management via Resend, not this ser
 
 ## Endpoints
 
-- `POST /send-on-behalf` - send email as the customer with Gmail or Microsoft Graph
+- `POST /send-on-behalf` - send email as the customer with Gmail
 - `POST /inbox/list` - list messages in the connected inbox
 - `POST /inbox/message` - get one message body
 
@@ -17,7 +17,7 @@ npm install
 npm start
 ```
 
-The local HTTP wrapper runs on port `3000` by default. Set `PORT` to override it. Set `EMAIL_SERVICE_API_KEY` to the SSM Parameter Store name that contains the API key to require `Authorization: Bearer <token>` on requests. Leave it unset to disable local auth.
+The local HTTP wrapper runs on port `8083` by default. Set `PORT` to override it. Set `EMAIL_SERVICE_API_KEY` to the SSM Parameter Store name that contains the API key to require `Authorization: Bearer <token>` on requests. Leave it unset to disable local auth.
 
 When deployed, the runtime role needs `ssm:GetParameter` for that parameter and `kms:Decrypt` if the value is stored as a `SecureString` encrypted with a customer-managed key.
 
@@ -34,6 +34,6 @@ Compiled JavaScript is emitted to `dist/`. For Lambda deployment, point the hand
 
 - `src/index.ts` - Lambda entry point and route handling
 - `src/local-server.ts` - thin HTTP wrapper for local Docker or direct local development
-- `src/services/` - Gmail and Microsoft Graph integration logic
+- `src/services/` - Gmail integration logic
 - `src/models/` - typed request and response contracts
 - `src/utils/` - request parsing and validation helpers

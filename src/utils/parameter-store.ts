@@ -1,7 +1,7 @@
 import { GetParameterCommand, SSMClient } from '@aws-sdk/client-ssm';
 
 const ssm = new SSMClient();
-const TTL_MS = 10 * 60 * 1000; // 10 minutes — allows key rotations to take effect without a cold start
+const TTL_MS = 10 * 60 * 1000; // 10 minutes; allows key rotations to take effect without a cold start.
 
 interface CacheEntry {
   value: string;

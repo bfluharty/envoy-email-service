@@ -1,15 +1,6 @@
-import { Client, AuthProvider } from '@microsoft/microsoft-graph-client';
 import { google } from 'googleapis';
 import { SendOnBehalfRequest, SendOnBehalfResponse } from '../models/email.js';
 import { logger } from '../utils/logger.js';
-
-function createMicrosoftClient(accessToken: string) {
-  const authProvider: AuthProvider = (done) => {
-    done(null, accessToken);
-  };
-
-  return Client.init({ authProvider });
-}
 
 export async function sendViaGmail(body: SendOnBehalfRequest): Promise<SendOnBehalfResponse> {
   const oauth2 = new google.auth.OAuth2();
@@ -44,49 +35,7 @@ export async function sendViaGmail(body: SendOnBehalfRequest): Promise<SendOnBeh
   return { messageId };
 }
 
-export async function sendViaMicrosoft(body: SendOnBehalfRequest): Promise<SendOnBehalfResponse> {
-  const client = createMicrosoftClient(body.accessToken);
-  const message: {
-    subject: string;
-    body: { contentType: 'Text'; content: string };
-    toRecipients: Array<{ emailAddress: { address: string } }>;
-    internetMessageHeaders?: Array<{ name: string; value: string }>;
-  } = {
-    subject: body.subject,
-    body: {
-      contentType: 'Text',
-      content: body.body,
-    },
-    toRecipients: [
-      {
-        emailAddress: {
-          address: body.to,
-        },
-      },
-    ],
-  };
-
-  const headers: Array<{ name: string; value: string }> = [];
-  if (body.inReplyTo) headers.push({ name: 'In-Reply-To', value: body.inReplyTo });
-  if (body.references) headers.push({ name: 'References', value: body.references });
-  if (headers.length > 0) message.internetMessageHeaders = headers;
-
-  await client.api('/me/sendMail').post({ message });
-  // Microsoft Graph /sendMail does not return the sent message ID
-  logger.info('microsoft send complete', { provider: 'microsoft', to: body.to });
-  return { messageId: '' };
-}
-
 export async function sendOnBehalf(body: SendOnBehalfRequest): Promise<SendOnBehalfResponse> {
   logger.info('sendOnBehalf start', { provider: body.provider, to: body.to, subject: body.subject });
-
-  if (body.provider === 'gmail') {
-    return sendViaGmail(body);
-  }
-
-  if (body.provider === 'microsoft') {
-    return sendViaMicrosoft(body);
-  }
-
-  throw new Error(`Unknown provider: ${body.provider}`);
+  return sendViaGmail(body);
 }

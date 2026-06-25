@@ -4,7 +4,7 @@ import {
   validateSendOnBehalf,
   validateInboxList,
   validateInboxGetMessage,
-} from '../utils/request-validation.js';
+} from '../src/utils/request-validation.js';
 
 describe('parseBody', () => {
   it('throws on null', () => {
@@ -35,10 +35,6 @@ describe('validateSendOnBehalf', () => {
 
   it('accepts a valid gmail payload', () => {
     expect(validateSendOnBehalf(valid)).toMatchObject(valid);
-  });
-
-  it('accepts a valid microsoft payload', () => {
-    expect(validateSendOnBehalf({ ...valid, provider: 'microsoft' })).toMatchObject({ provider: 'microsoft' });
   });
 
   it('throws on missing provider', () => {
@@ -121,7 +117,7 @@ describe('validateInboxList', () => {
 });
 
 describe('validateInboxGetMessage', () => {
-  const valid = { provider: 'microsoft', accessToken: 'tok', messageId: 'msg123' };
+  const valid = { provider: 'gmail', accessToken: 'tok', messageId: 'msg123' };
 
   it('accepts valid payload', () => {
     expect(validateInboxGetMessage(valid)).toMatchObject(valid);

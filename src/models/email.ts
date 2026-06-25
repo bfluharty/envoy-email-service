@@ -1,4 +1,4 @@
-export type EmailProvider = 'gmail' | 'microsoft';
+export type EmailProvider = 'gmail';
 
 export interface SendOnBehalfRequest {
   provider: EmailProvider;

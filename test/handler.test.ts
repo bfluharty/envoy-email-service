@@ -2,22 +2,22 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { APIGatewayProxyEventV2 } from 'aws-lambda';
 
 // Mock services and parameter store before importing handler
-vi.mock('../services/inbox-service.js', () => ({
+vi.mock('../src/services/inbox-service.js', () => ({
   inboxList: vi.fn().mockResolvedValue({ messages: [] }),
   inboxGetMessage: vi.fn().mockResolvedValue({ message: null }),
 }));
 
-vi.mock('../services/send-on-behalf-service.js', () => ({
+vi.mock('../src/services/send-on-behalf-service.js', () => ({
   sendOnBehalf: vi.fn().mockResolvedValue({ messageId: 'sent-id' }),
 }));
 
-vi.mock('../utils/parameter-store.js', () => ({
+vi.mock('../src/utils/parameter-store.js', () => ({
   getDecryptedParameter: vi.fn().mockResolvedValue('test-api-key'),
 }));
 
-import { handler } from '../index.js';
-import { inboxList, inboxGetMessage } from '../services/inbox-service.js';
-import { sendOnBehalf } from '../services/send-on-behalf-service.js';
+import { handler } from '../src/index.js';
+import { inboxList, inboxGetMessage } from '../src/services/inbox-service.js';
+import { sendOnBehalf } from '../src/services/send-on-behalf-service.js';
 
 function makeEvent(overrides: Partial<APIGatewayProxyEventV2> = {}): APIGatewayProxyEventV2 {
   return {
@@ -49,11 +49,11 @@ function makeBody(obj: unknown): string {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  // Default: no API key env var → auth bypassed
+  // Default: no API key env var means auth is bypassed.
   delete process.env.EMAIL_SERVICE_API_KEY;
 });
 
-describe('handler — method guard', () => {
+describe('handler - method guard', () => {
   it('returns 405 for GET', async () => {
     const event = makeEvent({
       requestContext: {
@@ -66,7 +66,7 @@ describe('handler — method guard', () => {
   });
 });
 
-describe('handler — auth', () => {
+describe('handler - auth', () => {
   beforeEach(() => {
     process.env.EMAIL_SERVICE_API_KEY = '/some/param';
   });
@@ -113,7 +113,7 @@ describe('handler — auth', () => {
   });
 });
 
-describe('handler — routing', () => {
+describe('handler - routing', () => {
   it('routes POST /send-on-behalf to sendOnBehalf', async () => {
     const event = makeEvent({
       rawPath: '/send-on-behalf',

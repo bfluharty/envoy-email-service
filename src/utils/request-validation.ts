@@ -14,7 +14,7 @@ function isRequestRecord(value: unknown): value is RequestRecord {
 }
 
 function isProvider(value: unknown): value is SendOnBehalfRequest['provider'] {
-  return value === 'gmail' || value === 'microsoft';
+  return value === 'gmail';
 }
 
 function isValidDate(value: string): boolean {
@@ -42,7 +42,7 @@ export function validateSendOnBehalf(body: unknown): SendOnBehalfRequest {
     typeof body.subject !== 'string' ||
     typeof body.body !== 'string'
   ) {
-    throw new ValidationError('Missing or invalid: provider (gmail|microsoft), accessToken, to, subject, body');
+    throw new ValidationError('Missing or invalid: provider (gmail), accessToken, to, subject, body');
   }
 
   return {
@@ -59,7 +59,7 @@ export function validateSendOnBehalf(body: unknown): SendOnBehalfRequest {
 
 export function validateInboxList(body: unknown): InboxListRequest {
   if (!isRequestRecord(body) || !isProvider(body.provider) || typeof body.accessToken !== 'string') {
-    throw new ValidationError('Missing or invalid: provider (gmail|microsoft), accessToken');
+    throw new ValidationError('Missing or invalid: provider (gmail), accessToken');
   }
 
   if (typeof body.afterDate === 'string' && !isValidDate(body.afterDate)) {
@@ -81,7 +81,7 @@ export function validateInboxGetMessage(body: unknown): InboxGetMessageRequest {
     typeof body.accessToken !== 'string' ||
     typeof body.messageId !== 'string'
   ) {
-    throw new ValidationError('Missing or invalid: provider (gmail|microsoft), accessToken, messageId');
+    throw new ValidationError('Missing or invalid: provider (gmail), accessToken, messageId');
   }
 
   return {
