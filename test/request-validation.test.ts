@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
   parseBody,
+  validateInboxChanges,
   validateSendOnBehalf,
   validateInboxList,
   validateInboxGetMessage,
+  validateInboxSearchVendorMessages,
 } from '../src/utils/request-validation.js';
 
 describe('parseBody', () => {
@@ -149,5 +151,53 @@ describe('validateInboxGetMessage', () => {
 
   it('throws on missing provider', () => {
     expect(() => validateInboxGetMessage({ accessToken: 'tok', messageId: 'msg123' })).toThrow('Missing or invalid');
+  });
+});
+
+describe('validateInboxSearchVendorMessages', () => {
+  const valid = { provider: 'microsoft', accessToken: 'tok', vendorEmails: ['vendor@example.com'] };
+
+  it('accepts valid payload', () => {
+    expect(validateInboxSearchVendorMessages(valid)).toMatchObject(valid);
+  });
+
+  it('accepts maxResults and afterDate', () => {
+    const result = validateInboxSearchVendorMessages({
+      ...valid,
+      maxResults: 25,
+      afterDate: '2024-01-01T00:00:00Z',
+    });
+    expect(result.maxResults).toBe(25);
+    expect(result.afterDate).toBe('2024-01-01T00:00:00Z');
+  });
+
+  it('throws when vendorEmails is missing', () => {
+    expect(() => validateInboxSearchVendorMessages({ provider: 'gmail', accessToken: 'tok' })).toThrow(
+      'Missing or invalid'
+    );
+  });
+
+  it('throws when vendorEmails contains non-strings', () => {
+    expect(() =>
+      validateInboxSearchVendorMessages({ provider: 'gmail', accessToken: 'tok', vendorEmails: [123] })
+    ).toThrow('Missing or invalid');
+  });
+});
+
+describe('validateInboxChanges', () => {
+  const valid = { provider: 'gmail', accessToken: 'tok' };
+
+  it('accepts valid payload with cursor and messageId', () => {
+    const result = validateInboxChanges({ ...valid, cursor: 'cursor-1', messageId: 'message-1' });
+    expect(result).toMatchObject({ ...valid, cursor: 'cursor-1', messageId: 'message-1' });
+  });
+
+  it('accepts microsoft payload', () => {
+    const result = validateInboxChanges({ provider: 'microsoft', accessToken: 'tok', messageId: 'message-1' });
+    expect(result.provider).toBe('microsoft');
+  });
+
+  it('throws on missing accessToken', () => {
+    expect(() => validateInboxChanges({ provider: 'gmail' })).toThrow('Missing or invalid');
   });
 });

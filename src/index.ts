@@ -1,10 +1,12 @@
 import { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from 'aws-lambda';
-import { inboxGetMessage, inboxList } from './services/inbox-service.js';
+import { inboxChanges, inboxGetMessage, inboxList, inboxSearchVendorMessages } from './services/inbox-service.js';
 import { sendOnBehalf } from './services/send-on-behalf-service.js';
 import {
   parseBody,
+  validateInboxChanges,
   validateInboxGetMessage,
   validateInboxList,
+  validateInboxSearchVendorMessages,
   validateSendOnBehalf,
   ValidationError,
 } from './utils/request-validation.js';
@@ -99,6 +101,23 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
     if (path.endsWith('/inbox/message')) {
       const body = validateInboxGetMessage(parseBody(rawBody));
       const result = await inboxGetMessage(body);
+      return jsonResponse(200, result);
+    }
+
+    if (path.endsWith('/inbox/search-vendor-messages')) {
+      const body = validateInboxSearchVendorMessages(parseBody(rawBody));
+      const result = await inboxSearchVendorMessages(body);
+      logger.info('/inbox/search-vendor-messages complete', {
+        provider: body.provider,
+        count: result.messages.length,
+      });
+      return jsonResponse(200, result);
+    }
+
+    if (path.endsWith('/inbox/changes')) {
+      const body = validateInboxChanges(parseBody(rawBody));
+      const result = await inboxChanges(body);
+      logger.info('/inbox/changes complete', { provider: body.provider, count: result.messages.length });
       return jsonResponse(200, result);
     }
 

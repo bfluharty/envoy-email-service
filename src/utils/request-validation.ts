@@ -1,4 +1,11 @@
-import { InboxGetMessageRequest, InboxListRequest, InboxMailbox, SendOnBehalfRequest } from '../models/email.js';
+import {
+  InboxChangesRequest,
+  InboxGetMessageRequest,
+  InboxListRequest,
+  InboxMailbox,
+  InboxSearchVendorMessagesRequest,
+  SendOnBehalfRequest,
+} from '../models/email.js';
 
 export class ValidationError extends Error {
   constructor(message: string) {
@@ -93,5 +100,42 @@ export function validateInboxGetMessage(body: unknown): InboxGetMessageRequest {
     provider: body.provider,
     accessToken: body.accessToken,
     messageId: body.messageId,
+  };
+}
+
+export function validateInboxSearchVendorMessages(body: unknown): InboxSearchVendorMessagesRequest {
+  if (
+    !isRequestRecord(body) ||
+    !isProvider(body.provider) ||
+    typeof body.accessToken !== 'string' ||
+    !Array.isArray(body.vendorEmails) ||
+    !body.vendorEmails.every((email) => typeof email === 'string')
+  ) {
+    throw new ValidationError('Missing or invalid: provider (gmail|microsoft), accessToken, vendorEmails');
+  }
+
+  if (typeof body.afterDate === 'string' && !isValidDate(body.afterDate)) {
+    throw new ValidationError('Invalid afterDate: must be a valid ISO 8601 date string');
+  }
+
+  return {
+    provider: body.provider,
+    accessToken: body.accessToken,
+    vendorEmails: body.vendorEmails,
+    maxResults: typeof body.maxResults === 'number' ? body.maxResults : undefined,
+    afterDate: typeof body.afterDate === 'string' ? body.afterDate : undefined,
+  };
+}
+
+export function validateInboxChanges(body: unknown): InboxChangesRequest {
+  if (!isRequestRecord(body) || !isProvider(body.provider) || typeof body.accessToken !== 'string') {
+    throw new ValidationError('Missing or invalid: provider (gmail|microsoft), accessToken');
+  }
+
+  return {
+    provider: body.provider,
+    accessToken: body.accessToken,
+    cursor: typeof body.cursor === 'string' ? body.cursor : undefined,
+    messageId: typeof body.messageId === 'string' ? body.messageId : undefined,
   };
 }

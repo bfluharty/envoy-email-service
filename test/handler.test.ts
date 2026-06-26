@@ -5,6 +5,8 @@ import type { APIGatewayProxyEventV2 } from 'aws-lambda';
 vi.mock('../src/services/inbox-service.js', () => ({
   inboxList: vi.fn().mockResolvedValue({ messages: [] }),
   inboxGetMessage: vi.fn().mockResolvedValue({ message: null }),
+  inboxSearchVendorMessages: vi.fn().mockResolvedValue({ messages: [] }),
+  inboxChanges: vi.fn().mockResolvedValue({ messages: [] }),
 }));
 
 vi.mock('../src/services/send-on-behalf-service.js', () => ({
@@ -16,7 +18,7 @@ vi.mock('../src/utils/parameter-store.js', () => ({
 }));
 
 import { handler } from '../src/index.js';
-import { inboxList, inboxGetMessage } from '../src/services/inbox-service.js';
+import { inboxChanges, inboxGetMessage, inboxList, inboxSearchVendorMessages } from '../src/services/inbox-service.js';
 import { sendOnBehalf } from '../src/services/send-on-behalf-service.js';
 
 function makeEvent(overrides: Partial<APIGatewayProxyEventV2> = {}): APIGatewayProxyEventV2 {
@@ -170,6 +172,46 @@ describe('handler - routing', () => {
     const res = await handler(event);
     expect(res.statusCode).toBe(200);
     expect(inboxGetMessage).toHaveBeenCalledOnce();
+  });
+
+  it('routes POST /inbox/search-vendor-messages to inboxSearchVendorMessages', async () => {
+    const event = makeEvent({
+      rawPath: '/inbox/search-vendor-messages',
+      requestContext: {
+        ...makeEvent().requestContext,
+        http: {
+          method: 'POST',
+          path: '/inbox/search-vendor-messages',
+          protocol: 'HTTP/1.1',
+          sourceIp: '1.2.3.4',
+          userAgent: 'test',
+        },
+      },
+      body: makeBody({ provider: 'microsoft', accessToken: 'tok', vendorEmails: ['vendor@example.com'] }),
+    });
+    const res = await handler(event);
+    expect(res.statusCode).toBe(200);
+    expect(inboxSearchVendorMessages).toHaveBeenCalledOnce();
+  });
+
+  it('routes POST /inbox/changes to inboxChanges', async () => {
+    const event = makeEvent({
+      rawPath: '/inbox/changes',
+      requestContext: {
+        ...makeEvent().requestContext,
+        http: {
+          method: 'POST',
+          path: '/inbox/changes',
+          protocol: 'HTTP/1.1',
+          sourceIp: '1.2.3.4',
+          userAgent: 'test',
+        },
+      },
+      body: makeBody({ provider: 'microsoft', accessToken: 'tok', messageId: 'msg1' }),
+    });
+    const res = await handler(event);
+    expect(res.statusCode).toBe(200);
+    expect(inboxChanges).toHaveBeenCalledOnce();
   });
 
   it('returns 404 for unknown path', async () => {
