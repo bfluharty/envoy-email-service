@@ -1,4 +1,4 @@
-import { InboxGetMessageRequest, InboxListRequest, SendOnBehalfRequest } from '../models/email.js';
+import { InboxGetMessageRequest, InboxListRequest, InboxMailbox, SendOnBehalfRequest } from '../models/email.js';
 
 export class ValidationError extends Error {
   constructor(message: string) {
@@ -14,7 +14,11 @@ function isRequestRecord(value: unknown): value is RequestRecord {
 }
 
 function isProvider(value: unknown): value is SendOnBehalfRequest['provider'] {
-  return value === 'gmail';
+  return value === 'gmail' || value === 'microsoft';
+}
+
+function isMailbox(value: unknown): value is InboxMailbox {
+  return value === 'inbox' || value === 'sent' || value === 'all';
 }
 
 function isValidDate(value: string): boolean {
@@ -42,7 +46,7 @@ export function validateSendOnBehalf(body: unknown): SendOnBehalfRequest {
     typeof body.subject !== 'string' ||
     typeof body.body !== 'string'
   ) {
-    throw new ValidationError('Missing or invalid: provider (gmail), accessToken, to, subject, body');
+    throw new ValidationError('Missing or invalid: provider (gmail|microsoft), accessToken, to, subject, body');
   }
 
   return {
@@ -59,7 +63,7 @@ export function validateSendOnBehalf(body: unknown): SendOnBehalfRequest {
 
 export function validateInboxList(body: unknown): InboxListRequest {
   if (!isRequestRecord(body) || !isProvider(body.provider) || typeof body.accessToken !== 'string') {
-    throw new ValidationError('Missing or invalid: provider (gmail), accessToken');
+    throw new ValidationError('Missing or invalid: provider (gmail|microsoft), accessToken');
   }
 
   if (typeof body.afterDate === 'string' && !isValidDate(body.afterDate)) {
@@ -71,6 +75,7 @@ export function validateInboxList(body: unknown): InboxListRequest {
     accessToken: body.accessToken,
     maxResults: typeof body.maxResults === 'number' ? body.maxResults : undefined,
     afterDate: typeof body.afterDate === 'string' ? body.afterDate : undefined,
+    mailbox: isMailbox(body.mailbox) ? body.mailbox : undefined,
   };
 }
 
@@ -81,7 +86,7 @@ export function validateInboxGetMessage(body: unknown): InboxGetMessageRequest {
     typeof body.accessToken !== 'string' ||
     typeof body.messageId !== 'string'
   ) {
-    throw new ValidationError('Missing or invalid: provider (gmail), accessToken, messageId');
+    throw new ValidationError('Missing or invalid: provider (gmail|microsoft), accessToken, messageId');
   }
 
   return {

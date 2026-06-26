@@ -37,6 +37,11 @@ describe('validateSendOnBehalf', () => {
     expect(validateSendOnBehalf(valid)).toMatchObject(valid);
   });
 
+  it('accepts a valid microsoft payload', () => {
+    const body = { ...valid, provider: 'microsoft' };
+    expect(validateSendOnBehalf(body)).toMatchObject(body);
+  });
+
   it('throws on missing provider', () => {
     expect(() => validateSendOnBehalf({ ...valid, provider: undefined })).toThrow('Missing or invalid');
   });
@@ -88,6 +93,11 @@ describe('validateInboxList', () => {
     expect(validateInboxList(valid)).toMatchObject(valid);
   });
 
+  it('accepts valid microsoft payload', () => {
+    const body = { ...valid, provider: 'microsoft' };
+    expect(validateInboxList(body)).toMatchObject(body);
+  });
+
   it('throws on missing provider', () => {
     expect(() => validateInboxList({ accessToken: 'tok' })).toThrow('Missing or invalid');
   });
@@ -114,6 +124,11 @@ describe('validateInboxList', () => {
     const result = validateInboxList({ ...valid, maxResults: 10 });
     expect(result.maxResults).toBe(10);
   });
+
+  it('accepts mailbox', () => {
+    const result = validateInboxList({ ...valid, mailbox: 'sent' });
+    expect(result.mailbox).toBe('sent');
+  });
 });
 
 describe('validateInboxGetMessage', () => {
@@ -121,6 +136,11 @@ describe('validateInboxGetMessage', () => {
 
   it('accepts valid payload', () => {
     expect(validateInboxGetMessage(valid)).toMatchObject(valid);
+  });
+
+  it('accepts valid microsoft payload', () => {
+    const body = { ...valid, provider: 'microsoft' };
+    expect(validateInboxGetMessage(body)).toMatchObject(body);
   });
 
   it('throws on missing messageId', () => {

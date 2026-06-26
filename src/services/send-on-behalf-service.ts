@@ -1,6 +1,7 @@
 import { google } from 'googleapis';
 import { SendOnBehalfRequest, SendOnBehalfResponse } from '../models/email.js';
 import { logger } from '../utils/logger.js';
+import { UnsupportedProviderOperationError } from './email-provider-adapter.js';
 
 export async function sendViaGmail(body: SendOnBehalfRequest): Promise<SendOnBehalfResponse> {
   const oauth2 = new google.auth.OAuth2();
@@ -37,5 +38,8 @@ export async function sendViaGmail(body: SendOnBehalfRequest): Promise<SendOnBeh
 
 export async function sendOnBehalf(body: SendOnBehalfRequest): Promise<SendOnBehalfResponse> {
   logger.info('sendOnBehalf start', { provider: body.provider, to: body.to, subject: body.subject });
+  if (body.provider !== 'gmail') {
+    throw new UnsupportedProviderOperationError(body.provider, 'sendMessage');
+  }
   return sendViaGmail(body);
 }

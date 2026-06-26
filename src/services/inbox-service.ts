@@ -7,6 +7,7 @@ import {
   InboxMessageSummary,
 } from '../models/email.js';
 import { logger } from '../utils/logger.js';
+import { UnsupportedProviderOperationError } from './email-provider-adapter.js';
 
 const DEFAULT_MAX = 50;
 
@@ -92,6 +93,9 @@ async function listGmail(body: InboxListRequest): Promise<InboxListResponse> {
 }
 
 export async function inboxList(body: InboxListRequest): Promise<InboxListResponse> {
+  if (body.provider !== 'gmail') {
+    throw new UnsupportedProviderOperationError(body.provider, 'listMessages');
+  }
   const result = await listGmail(body);
   logger.info('inbox list complete', { provider: body.provider, count: result.messages.length });
   return result;
@@ -109,6 +113,7 @@ async function getGmail(body: InboxGetMessageRequest): Promise<InboxGetMessageRe
   const headers = payload.headers;
   const dateHeader = getGmailHeader(headers, 'Date');
   const messageIdHeader = getGmailHeader(headers, 'Message-ID');
+  const inReplyToHeader = getGmailHeader(headers, 'In-Reply-To');
   const referencesHeader = getGmailHeader(headers, 'References');
 
   return {
@@ -121,12 +126,18 @@ async function getGmail(body: InboxGetMessageRequest): Promise<InboxGetMessageRe
       body: getGmailBodyText(payload),
       date: dateHeader ? toIsoDateOrNow(dateHeader) : new Date().toISOString(),
       messageId: messageIdHeader || undefined,
+      inReplyTo: inReplyToHeader || undefined,
       references: referencesHeader || undefined,
+      threadId: res.data.threadId ?? null,
     },
   };
 }
 
 export async function inboxGetMessage(body: InboxGetMessageRequest): Promise<InboxGetMessageResponse> {
+  if (body.provider !== 'gmail') {
+    throw new UnsupportedProviderOperationError(body.provider, 'getMessage');
+  }
+
   try {
     return await getGmail(body);
   } catch (err) {
