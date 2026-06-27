@@ -3,7 +3,7 @@ import { createServer, IncomingHttpHeaders, OutgoingHttpHeaders } from 'node:htt
 import { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from 'aws-lambda';
 import { handler } from './index.js';
 
-const PORT = Number(process.env.PORT ?? 3000);
+const PORT = Number(process.env.PORT ?? 8083);
 
 function normalizeHeaders(headers: IncomingHttpHeaders): Record<string, string> {
   const normalized: Record<string, string> = {};

@@ -1,4 +1,21 @@
-import { InboxGetMessageRequest, InboxListRequest, SendOnBehalfRequest } from '../models/email.js';
+import {
+  InboxChangesRequest,
+  InboxGetMessageRequest,
+  InboxListRequest,
+  InboxMailbox,
+  InboxSearchVendorMessagesRequest,
+  RenewWatchRequest,
+  SendOnBehalfRequest,
+  StopWatchRequest,
+  WatchSetupRequest,
+} from '../models/email.js';
+
+export class ValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ValidationError';
+  }
+}
 
 type RequestRecord = Record<string, unknown>;
 
@@ -10,15 +27,23 @@ function isProvider(value: unknown): value is SendOnBehalfRequest['provider'] {
   return value === 'gmail' || value === 'microsoft';
 }
 
+function isMailbox(value: unknown): value is InboxMailbox {
+  return value === 'inbox' || value === 'sent' || value === 'all';
+}
+
+function isValidDate(value: string): boolean {
+  return !Number.isNaN(new Date(value).getTime());
+}
+
 export function parseBody(raw: string | null | undefined): unknown {
   if (!raw || raw === '') {
-    throw new Error('Missing request body');
+    throw new ValidationError('Missing request body');
   }
 
   try {
     return JSON.parse(raw);
   } catch {
-    throw new Error('Invalid JSON body');
+    throw new ValidationError('Invalid JSON body');
   }
 }
 
@@ -31,7 +56,7 @@ export function validateSendOnBehalf(body: unknown): SendOnBehalfRequest {
     typeof body.subject !== 'string' ||
     typeof body.body !== 'string'
   ) {
-    throw new Error('Missing or invalid: provider (gmail|microsoft), accessToken, to, subject, body');
+    throw new ValidationError('Missing or invalid: provider (gmail|microsoft), accessToken, to, subject, body');
   }
 
   return {
@@ -48,7 +73,11 @@ export function validateSendOnBehalf(body: unknown): SendOnBehalfRequest {
 
 export function validateInboxList(body: unknown): InboxListRequest {
   if (!isRequestRecord(body) || !isProvider(body.provider) || typeof body.accessToken !== 'string') {
-    throw new Error('Missing or invalid: provider (gmail|microsoft), accessToken');
+    throw new ValidationError('Missing or invalid: provider (gmail|microsoft), accessToken');
+  }
+
+  if (typeof body.afterDate === 'string' && !isValidDate(body.afterDate)) {
+    throw new ValidationError('Invalid afterDate: must be a valid ISO 8601 date string');
   }
 
   return {
@@ -56,6 +85,7 @@ export function validateInboxList(body: unknown): InboxListRequest {
     accessToken: body.accessToken,
     maxResults: typeof body.maxResults === 'number' ? body.maxResults : undefined,
     afterDate: typeof body.afterDate === 'string' ? body.afterDate : undefined,
+    mailbox: isMailbox(body.mailbox) ? body.mailbox : undefined,
   };
 }
 
@@ -66,12 +96,93 @@ export function validateInboxGetMessage(body: unknown): InboxGetMessageRequest {
     typeof body.accessToken !== 'string' ||
     typeof body.messageId !== 'string'
   ) {
-    throw new Error('Missing or invalid: provider (gmail|microsoft), accessToken, messageId');
+    throw new ValidationError('Missing or invalid: provider (gmail|microsoft), accessToken, messageId');
   }
 
   return {
     provider: body.provider,
     accessToken: body.accessToken,
     messageId: body.messageId,
+  };
+}
+
+export function validateInboxSearchVendorMessages(body: unknown): InboxSearchVendorMessagesRequest {
+  if (
+    !isRequestRecord(body) ||
+    !isProvider(body.provider) ||
+    typeof body.accessToken !== 'string' ||
+    !Array.isArray(body.vendorEmails) ||
+    !body.vendorEmails.every((email) => typeof email === 'string')
+  ) {
+    throw new ValidationError('Missing or invalid: provider (gmail|microsoft), accessToken, vendorEmails');
+  }
+
+  if (typeof body.afterDate === 'string' && !isValidDate(body.afterDate)) {
+    throw new ValidationError('Invalid afterDate: must be a valid ISO 8601 date string');
+  }
+
+  return {
+    provider: body.provider,
+    accessToken: body.accessToken,
+    vendorEmails: body.vendorEmails,
+    maxResults: typeof body.maxResults === 'number' ? body.maxResults : undefined,
+    afterDate: typeof body.afterDate === 'string' ? body.afterDate : undefined,
+  };
+}
+
+export function validateInboxChanges(body: unknown): InboxChangesRequest {
+  if (!isRequestRecord(body) || !isProvider(body.provider) || typeof body.accessToken !== 'string') {
+    throw new ValidationError('Missing or invalid: provider (gmail|microsoft), accessToken');
+  }
+
+  return {
+    provider: body.provider,
+    accessToken: body.accessToken,
+    cursor: typeof body.cursor === 'string' ? body.cursor : undefined,
+    messageId: typeof body.messageId === 'string' ? body.messageId : undefined,
+  };
+}
+
+export function validateWatchSetup(body: unknown): WatchSetupRequest {
+  if (
+    !isRequestRecord(body) ||
+    !isProvider(body.provider) ||
+    typeof body.accessToken !== 'string' ||
+    typeof body.email !== 'string' ||
+    typeof body.connectionUuid !== 'string'
+  ) {
+    throw new ValidationError('Missing or invalid: provider (gmail|microsoft), accessToken, email, connectionUuid');
+  }
+
+  return {
+    provider: body.provider,
+    accessToken: body.accessToken,
+    email: body.email,
+    connectionUuid: body.connectionUuid,
+    callbackUrl: typeof body.callbackUrl === 'string' ? body.callbackUrl : undefined,
+  };
+}
+
+export function validateWatchRenew(body: unknown): RenewWatchRequest {
+  const input = validateWatchSetup(body);
+  if (!isRequestRecord(body)) {
+    throw new ValidationError('Missing or invalid: provider (gmail|microsoft), accessToken, email, connectionUuid');
+  }
+
+  return {
+    ...input,
+    providerSubscriptionId: typeof body.providerSubscriptionId === 'string' ? body.providerSubscriptionId : undefined,
+  };
+}
+
+export function validateWatchStop(body: unknown): StopWatchRequest {
+  if (!isRequestRecord(body) || !isProvider(body.provider) || typeof body.accessToken !== 'string') {
+    throw new ValidationError('Missing or invalid: provider (gmail|microsoft), accessToken');
+  }
+
+  return {
+    provider: body.provider,
+    accessToken: body.accessToken,
+    providerSubscriptionId: typeof body.providerSubscriptionId === 'string' ? body.providerSubscriptionId : undefined,
   };
 }

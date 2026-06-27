@@ -17,19 +17,13 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts
 
 # ----------- Production Stage -----------
-FROM node:22-bookworm-slim AS production
-WORKDIR /usr/src/app
+FROM public.ecr.aws/lambda/nodejs:22 AS production
+WORKDIR ${LAMBDA_TASK_ROOT}
 
-RUN groupadd -r appgroup && useradd -r -g appgroup appuser
-
-COPY --chown=appuser:appgroup --from=prod-deps /usr/src/app/node_modules ./node_modules
-COPY --chown=appuser:appgroup --from=builder /usr/src/app/dist ./dist
-COPY --chown=appuser:appgroup package.json package-lock.json ./
-
-EXPOSE 3000
+COPY --from=prod-deps /usr/src/app/node_modules ./node_modules
+COPY --from=builder /usr/src/app/dist ./dist
+COPY package.json package-lock.json ./
 
 ENV NODE_ENV=production
 
-USER appuser
-
-CMD ["node", "dist/local-server.js"]
+CMD ["dist/index.handler"]

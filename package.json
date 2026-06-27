@@ -13,7 +13,7 @@
     "lint": "eslint .",
     "start": "tsc && node dist/local-server.js",
     "typecheck": "tsc --noEmit",
-    "test": "npm run typecheck",
+    "test": "vitest run",
     "prepare": "husky"
   },
   "lint-staged": {
@@ -24,8 +24,8 @@
     "*.{json,md,yml,yaml}": "prettier --write"
   },
   "dependencies": {
+    "@aws-sdk/client-sqs": "^3.1075.0",
     "@aws-sdk/client-ssm": "^3.1064.0",
-    "@microsoft/microsoft-graph-client": "^3.0.7",
     "googleapis": "^144.0.0"
   },
   "devDependencies": {
@@ -38,6 +38,7 @@
     "husky": "^9.1.7",
     "lint-staged": "^16.4.0",
     "prettier": "^3.8.3",
-    "typescript": "^5.6.3"
+    "typescript": "^5.6.3",
+    "vitest": "^4.1.9"
   }
 }

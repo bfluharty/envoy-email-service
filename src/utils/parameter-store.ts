@@ -1,7 +1,14 @@
 import { GetParameterCommand, SSMClient } from '@aws-sdk/client-ssm';
 
 const ssm = new SSMClient();
-const parameterCache = new Map<string, Promise<string>>();
+const TTL_MS = 10 * 60 * 1000; // 10 minutes; allows key rotations to take effect without a cold start.
+
+interface CacheEntry {
+  value: string;
+  fetchedAt: number;
+}
+
+const parameterCache = new Map<string, CacheEntry>();
 
 export async function getDecryptedParameter(parameterName: string): Promise<string> {
   const name = parameterName.trim();
@@ -10,30 +17,22 @@ export async function getDecryptedParameter(parameterName: string): Promise<stri
   }
 
   const cached = parameterCache.get(name);
-  if (cached) {
-    return cached;
+  if (cached && Date.now() - cached.fetchedAt < TTL_MS) {
+    return cached.value;
   }
 
-  const parameterPromise = ssm
-    .send(
-      new GetParameterCommand({
-        Name: name,
-        WithDecryption: true,
-      })
-    )
-    .then((response) => {
-      const value = response.Parameter?.Value;
-      if (!value) {
-        throw new Error('Parameter Store value is empty.');
-      }
-
-      return value;
+  const response = await ssm.send(
+    new GetParameterCommand({
+      Name: name,
+      WithDecryption: true,
     })
-    .catch((err) => {
-      parameterCache.delete(name);
-      throw err;
-    });
+  );
 
-  parameterCache.set(name, parameterPromise);
-  return parameterPromise;
+  const value = response.Parameter?.Value;
+  if (!value) {
+    throw new Error('Parameter Store value is empty.');
+  }
+
+  parameterCache.set(name, { value, fetchedAt: Date.now() });
+  return value;
 }
