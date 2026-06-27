@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { EmailSyncEventMessage } from '../models/email.js';
 import { ValidationError } from '../utils/request-validation.js';
 import { verifyMicrosoftClientState } from '../utils/microsoft-client-state.js';
+import { logger } from '../utils/logger.js';
 import { publishEmailSyncEvent } from './email-sync-event-publisher.js';
 
 interface PubSubPushEnvelope {
@@ -60,6 +61,12 @@ export async function handleGmailPubSubWebhook(body: unknown): Promise<{ queued:
     throw new ValidationError('Missing Gmail emailAddress or historyId');
   }
 
+  logger.info('gmail pubsub webhook received', {
+    email,
+    providerCursor,
+    messageId: envelope.message?.messageId ?? envelope.message?.message_id,
+  });
+
   const event: EmailSyncEventMessage = {
     eventId: envelope.message?.messageId ?? envelope.message?.message_id ?? randomUUID(),
     provider: 'gmail',
@@ -108,6 +115,11 @@ export async function handleMicrosoftGraphWebhook(body: unknown): Promise<{ queu
     (notification): notification is MicrosoftGraphNotification => Boolean(notification)
   );
 
+  logger.info('microsoft graph webhook received', {
+    notificationCount: notifications.length,
+    subscriptionIds: notifications.map((notification) => notification.subscriptionId).filter(Boolean),
+  });
+
   for (const notification of notifications) {
     await publishMicrosoftNotification(notification);
   }
@@ -119,6 +131,11 @@ export async function handleMicrosoftLifecycleWebhook(body: unknown): Promise<{ 
   const notifications = ((body as MicrosoftGraphWebhookBody).value ?? []).filter(
     (notification): notification is MicrosoftGraphNotification => Boolean(notification)
   );
+
+  logger.info('microsoft lifecycle webhook received', {
+    notificationCount: notifications.length,
+    subscriptionIds: notifications.map((notification) => notification.subscriptionId).filter(Boolean),
+  });
 
   for (const notification of notifications) {
     const payload = await verifyMicrosoftClientState(notification.clientState ?? '');

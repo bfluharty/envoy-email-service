@@ -3,7 +3,12 @@ import { logger } from '../utils/logger.js';
 import { getBuiltInEmailProviderAdapter } from './builtin-email-providers.js';
 
 export async function sendOnBehalf(body: SendOnBehalfRequest): Promise<SendOnBehalfResponse> {
-  logger.info('sendOnBehalf start', { provider: body.provider, to: body.to, subject: body.subject });
+  logger.info('sendOnBehalf start', {
+    provider: body.provider,
+    to: body.to,
+    subjectLength: body.subject.length,
+    bodyLength: body.body.length,
+  });
   const adapter = getBuiltInEmailProviderAdapter(body.provider);
   return adapter.sendMessage(body);
 }

@@ -1,5 +1,6 @@
 import { SendMessageCommand, SQSClient, type SendMessageCommandInput } from '@aws-sdk/client-sqs';
 import { EmailSyncEventMessage } from '../models/email.js';
+import { logger } from '../utils/logger.js';
 
 const sqs = new SQSClient({});
 
@@ -41,4 +42,11 @@ export async function publishEmailSyncEvent(message: EmailSyncEventMessage): Pro
       MessageAttributes: messageAttributes,
     })
   );
+  logger.info('email sync event published', {
+    eventId: message.eventId,
+    provider: message.provider,
+    eventType: message.eventType,
+    connectionUuid: message.connectionUuid,
+    hasProviderMessageId: Boolean(message.providerMessageId),
+  });
 }
