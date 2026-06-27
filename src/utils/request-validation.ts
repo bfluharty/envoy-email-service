@@ -4,7 +4,10 @@ import {
   InboxListRequest,
   InboxMailbox,
   InboxSearchVendorMessagesRequest,
+  RenewWatchRequest,
   SendOnBehalfRequest,
+  StopWatchRequest,
+  WatchSetupRequest,
 } from '../models/email.js';
 
 export class ValidationError extends Error {
@@ -137,5 +140,49 @@ export function validateInboxChanges(body: unknown): InboxChangesRequest {
     accessToken: body.accessToken,
     cursor: typeof body.cursor === 'string' ? body.cursor : undefined,
     messageId: typeof body.messageId === 'string' ? body.messageId : undefined,
+  };
+}
+
+export function validateWatchSetup(body: unknown): WatchSetupRequest {
+  if (
+    !isRequestRecord(body) ||
+    !isProvider(body.provider) ||
+    typeof body.accessToken !== 'string' ||
+    typeof body.email !== 'string' ||
+    typeof body.connectionUuid !== 'string'
+  ) {
+    throw new ValidationError('Missing or invalid: provider (gmail|microsoft), accessToken, email, connectionUuid');
+  }
+
+  return {
+    provider: body.provider,
+    accessToken: body.accessToken,
+    email: body.email,
+    connectionUuid: body.connectionUuid,
+    callbackUrl: typeof body.callbackUrl === 'string' ? body.callbackUrl : undefined,
+  };
+}
+
+export function validateWatchRenew(body: unknown): RenewWatchRequest {
+  const input = validateWatchSetup(body);
+  if (!isRequestRecord(body)) {
+    throw new ValidationError('Missing or invalid: provider (gmail|microsoft), accessToken, email, connectionUuid');
+  }
+
+  return {
+    ...input,
+    providerSubscriptionId: typeof body.providerSubscriptionId === 'string' ? body.providerSubscriptionId : undefined,
+  };
+}
+
+export function validateWatchStop(body: unknown): StopWatchRequest {
+  if (!isRequestRecord(body) || !isProvider(body.provider) || typeof body.accessToken !== 'string') {
+    throw new ValidationError('Missing or invalid: provider (gmail|microsoft), accessToken');
+  }
+
+  return {
+    provider: body.provider,
+    accessToken: body.accessToken,
+    providerSubscriptionId: typeof body.providerSubscriptionId === 'string' ? body.providerSubscriptionId : undefined,
   };
 }

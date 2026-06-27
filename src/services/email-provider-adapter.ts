@@ -8,19 +8,11 @@ import {
   InboxSearchVendorMessagesRequest,
   SendOnBehalfRequest,
   SendOnBehalfResponse,
+  RenewWatchRequest,
+  StopWatchRequest,
   WatchResult,
   WatchSetupRequest,
 } from '../models/email.js';
-
-export interface RenewWatchRequest extends WatchSetupRequest {
-  providerSubscriptionId?: string;
-}
-
-export interface StopWatchRequest {
-  provider: EmailProvider;
-  accessToken: string;
-  providerSubscriptionId?: string;
-}
 
 export interface EmailProviderAdapter {
   provider: EmailProvider;

@@ -24,6 +24,7 @@
     "*.{json,md,yml,yaml}": "prettier --write"
   },
   "dependencies": {
+    "@aws-sdk/client-sqs": "^3.1075.0",
     "@aws-sdk/client-ssm": "^3.1064.0",
     "googleapis": "^144.0.0"
   },

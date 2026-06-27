@@ -9,16 +9,14 @@ import {
   InboxSearchVendorMessagesRequest,
   SendOnBehalfRequest,
   SendOnBehalfResponse,
+  RenewWatchRequest,
+  StopWatchRequest,
   WatchResult,
   WatchSetupRequest,
 } from '../../models/email.js';
-import {
-  EmailProviderAdapter,
-  RenewWatchRequest,
-  StopWatchRequest,
-  UnsupportedProviderOperationError,
-} from '../email-provider-adapter.js';
+import { EmailProviderAdapter } from '../email-provider-adapter.js';
 import { logger } from '../../utils/logger.js';
+import { getConfiguredParameterValue } from '../../utils/configured-parameter.js';
 
 const DEFAULT_MAX = 50;
 
@@ -66,6 +64,19 @@ function gmailClient(accessToken: string) {
   const oauth2 = new google.auth.OAuth2();
   oauth2.setCredentials({ access_token: accessToken });
   return google.gmail({ version: 'v1', auth: oauth2 });
+}
+
+function getGmailPubSubTopic(): Promise<string> {
+  return getConfiguredParameterValue('GMAIL_PUBSUB_TOPIC');
+}
+
+function gmailExpirationToIso(expiration: string | number | null | undefined): string | undefined {
+  if (!expiration) return undefined;
+
+  const value = Number(expiration);
+  if (!Number.isFinite(value)) return undefined;
+
+  return new Date(value).toISOString();
 }
 
 function mailboxQuery(mailbox: InboxListRequest['mailbox']): string[] {
@@ -188,6 +199,37 @@ async function sendGmailMessage(input: SendOnBehalfRequest): Promise<SendOnBehal
   return { messageId, threadId: res.data.threadId ?? input.threadId ?? null };
 }
 
+async function setupGmailWatch(input: WatchSetupRequest): Promise<WatchResult> {
+  const gmail = gmailClient(input.accessToken);
+  const topicName = await getGmailPubSubTopic();
+  const res = await gmail.users.watch({
+    userId: 'me',
+    requestBody: {
+      topicName,
+      labelIds: ['INBOX'],
+    },
+  });
+
+  logger.info('gmail watch setup complete', {
+    provider: 'gmail',
+    email: input.email,
+    connectionUuid: input.connectionUuid,
+    historyId: res.data.historyId,
+  });
+
+  return {
+    provider: 'gmail',
+    providerCursor: res.data.historyId ?? undefined,
+    expiresAt: gmailExpirationToIso(res.data.expiration),
+  };
+}
+
+async function stopGmailWatch(input: StopWatchRequest): Promise<void> {
+  const gmail = gmailClient(input.accessToken);
+  await gmail.users.stop({ userId: 'me' });
+  logger.info('gmail watch stopped', { provider: 'gmail' });
+}
+
 export const gmailAdapter: EmailProviderAdapter = {
   provider: 'gmail',
 
@@ -246,15 +288,15 @@ export const gmailAdapter: EmailProviderAdapter = {
     return sendGmailMessage(input);
   },
 
-  setupWatch(_input: WatchSetupRequest): Promise<WatchResult> {
-    throw new UnsupportedProviderOperationError('gmail', 'setupWatch');
+  setupWatch(input: WatchSetupRequest): Promise<WatchResult> {
+    return setupGmailWatch(input);
   },
 
-  renewWatch(_input: RenewWatchRequest): Promise<WatchResult> {
-    throw new UnsupportedProviderOperationError('gmail', 'renewWatch');
+  renewWatch(input: RenewWatchRequest): Promise<WatchResult> {
+    return setupGmailWatch(input);
   },
 
-  async stopWatch(_input: StopWatchRequest): Promise<void> {
-    throw new UnsupportedProviderOperationError('gmail', 'stopWatch');
+  stopWatch(input: StopWatchRequest): Promise<void> {
+    return stopGmailWatch(input);
   },
 };

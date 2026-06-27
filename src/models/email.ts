@@ -87,10 +87,40 @@ export interface WatchSetupRequest {
   callbackUrl?: string;
 }
 
+export interface RenewWatchRequest extends WatchSetupRequest {
+  providerSubscriptionId?: string;
+}
+
+export interface StopWatchRequest {
+  provider: EmailProvider;
+  accessToken: string;
+  providerSubscriptionId?: string;
+}
+
 export interface WatchResult {
   provider: EmailProvider;
   providerCursor?: string;
   providerSubscriptionId?: string;
   subscriptionClientState?: string;
   expiresAt?: string;
+}
+
+export type EmailSyncEventType =
+  | 'gmail_history'
+  | 'microsoft_message_created'
+  | 'microsoft_message_updated'
+  | 'microsoft_subscription_lifecycle';
+
+export interface EmailSyncEventMessage {
+  eventId: string;
+  provider: EmailProvider;
+  eventType: EmailSyncEventType;
+  occurredAt: string;
+  email?: string;
+  connectionUuid?: string;
+  providerCursor?: string;
+  providerMessageId?: string;
+  providerThreadId?: string | null;
+  providerSubscriptionId?: string;
+  rawProviderEvent?: unknown;
 }

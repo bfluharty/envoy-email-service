@@ -9,19 +9,18 @@ import {
   InboxSearchVendorMessagesRequest,
   SendOnBehalfRequest,
   SendOnBehalfResponse,
+  RenewWatchRequest,
+  StopWatchRequest,
   WatchResult,
   WatchSetupRequest,
 } from '../../models/email.js';
-import {
-  EmailProviderAdapter,
-  RenewWatchRequest,
-  StopWatchRequest,
-  UnsupportedProviderOperationError,
-} from '../email-provider-adapter.js';
+import { EmailProviderAdapter } from '../email-provider-adapter.js';
 import { logger } from '../../utils/logger.js';
+import { createMicrosoftClientState } from '../../utils/microsoft-client-state.js';
 
 const GRAPH_ROOT = 'https://graph.microsoft.com/v1.0';
 const DEFAULT_MAX = 50;
+const MICROSOFT_SUBSCRIPTION_TTL_MS = 2 * 24 * 60 * 60 * 1000;
 
 interface GraphRecipient {
   emailAddress?: {
@@ -56,6 +55,12 @@ interface GraphMessage {
 
 interface GraphListResponse {
   value?: GraphMessage[];
+}
+
+interface GraphSubscription {
+  id?: string;
+  expirationDateTime?: string;
+  clientState?: string;
 }
 
 function headerValue(value: string): string {
@@ -289,6 +294,100 @@ async function sendMicrosoftMessage(input: SendOnBehalfRequest): Promise<SendOnB
   return { messageId: null, threadId: input.threadId ?? null };
 }
 
+function microsoftSubscriptionExpiration(): string {
+  return new Date(Date.now() + MICROSOFT_SUBSCRIPTION_TTL_MS).toISOString();
+}
+
+function requireMicrosoftNotificationUrl(input: WatchSetupRequest): string {
+  const url = (input.callbackUrl ?? process.env.MICROSOFT_GRAPH_NOTIFICATION_URL ?? '').trim();
+  if (!url) {
+    throw new Error('MICROSOFT_GRAPH_NOTIFICATION_URL is not set');
+  }
+
+  return url;
+}
+
+async function setupMicrosoftWatch(input: WatchSetupRequest): Promise<WatchResult> {
+  const notificationUrl = requireMicrosoftNotificationUrl(input);
+  const lifecycleNotificationUrl = (process.env.MICROSOFT_GRAPH_LIFECYCLE_URL ?? '').trim() || undefined;
+  const clientState = await createMicrosoftClientState(input.connectionUuid);
+  const expirationDateTime = microsoftSubscriptionExpiration();
+
+  const subscription = await graphRequest<GraphSubscription>(input.accessToken, '/subscriptions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      changeType: 'created',
+      notificationUrl,
+      lifecycleNotificationUrl,
+      resource: "me/mailFolders('Inbox')/messages",
+      expirationDateTime,
+      clientState,
+    }),
+  });
+
+  if (!subscription.id) {
+    throw new Error('Microsoft Graph subscription response did not include an id');
+  }
+
+  logger.info('microsoft watch setup complete', {
+    provider: 'microsoft',
+    email: input.email,
+    connectionUuid: input.connectionUuid,
+    providerSubscriptionId: subscription.id,
+  });
+
+  return {
+    provider: 'microsoft',
+    providerSubscriptionId: subscription.id,
+    subscriptionClientState: subscription.clientState ?? clientState,
+    expiresAt: subscription.expirationDateTime ?? expirationDateTime,
+  };
+}
+
+async function renewMicrosoftWatch(input: RenewWatchRequest): Promise<WatchResult> {
+  if (!input.providerSubscriptionId) {
+    throw new Error('providerSubscriptionId is required to renew a Microsoft watch');
+  }
+
+  const expirationDateTime = microsoftSubscriptionExpiration();
+  const subscription = await graphRequest<GraphSubscription>(
+    input.accessToken,
+    `/subscriptions/${encodeURIComponent(input.providerSubscriptionId)}`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expirationDateTime }),
+    }
+  );
+
+  logger.info('microsoft watch renewed', {
+    provider: 'microsoft',
+    providerSubscriptionId: input.providerSubscriptionId,
+  });
+
+  return {
+    provider: 'microsoft',
+    providerSubscriptionId: subscription.id ?? input.providerSubscriptionId,
+    subscriptionClientState: subscription.clientState,
+    expiresAt: subscription.expirationDateTime ?? expirationDateTime,
+  };
+}
+
+async function stopMicrosoftWatch(input: StopWatchRequest): Promise<void> {
+  if (!input.providerSubscriptionId) {
+    return;
+  }
+
+  await graphRequest<void>(input.accessToken, `/subscriptions/${encodeURIComponent(input.providerSubscriptionId)}`, {
+    method: 'DELETE',
+  });
+  logger.info('microsoft watch stopped', {
+    provider: 'microsoft',
+    providerSubscriptionId: input.providerSubscriptionId,
+  });
+}
+
 export const microsoftAdapter: EmailProviderAdapter = {
   provider: 'microsoft',
 
@@ -318,15 +417,15 @@ export const microsoftAdapter: EmailProviderAdapter = {
     return sendMicrosoftMessage(input);
   },
 
-  setupWatch(_input: WatchSetupRequest): Promise<WatchResult> {
-    throw new UnsupportedProviderOperationError('microsoft', 'setupWatch');
+  setupWatch(input: WatchSetupRequest): Promise<WatchResult> {
+    return setupMicrosoftWatch(input);
   },
 
-  renewWatch(_input: RenewWatchRequest): Promise<WatchResult> {
-    throw new UnsupportedProviderOperationError('microsoft', 'renewWatch');
+  renewWatch(input: RenewWatchRequest): Promise<WatchResult> {
+    return renewMicrosoftWatch(input);
   },
 
-  async stopWatch(_input: StopWatchRequest): Promise<void> {
-    throw new UnsupportedProviderOperationError('microsoft', 'stopWatch');
+  stopWatch(input: StopWatchRequest): Promise<void> {
+    return stopMicrosoftWatch(input);
   },
 };

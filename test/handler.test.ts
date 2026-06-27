@@ -13,6 +13,18 @@ vi.mock('../src/services/send-on-behalf-service.js', () => ({
   sendOnBehalf: vi.fn().mockResolvedValue({ messageId: 'sent-id' }),
 }));
 
+vi.mock('../src/services/watch-service.js', () => ({
+  setupWatch: vi.fn().mockResolvedValue({ provider: 'gmail', providerCursor: 'history-1' }),
+  renewWatch: vi.fn().mockResolvedValue({ provider: 'gmail', providerCursor: 'history-2' }),
+  stopWatch: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('../src/services/webhook-service.js', () => ({
+  handleGmailPubSubWebhook: vi.fn().mockResolvedValue({ queued: 1 }),
+  handleMicrosoftGraphWebhook: vi.fn().mockResolvedValue({ queued: 1 }),
+  handleMicrosoftLifecycleWebhook: vi.fn().mockResolvedValue({ queued: 1 }),
+}));
+
 vi.mock('../src/utils/parameter-store.js', () => ({
   getDecryptedParameter: vi.fn().mockResolvedValue('test-api-key'),
 }));
@@ -20,6 +32,8 @@ vi.mock('../src/utils/parameter-store.js', () => ({
 import { handler } from '../src/index.js';
 import { inboxChanges, inboxGetMessage, inboxList, inboxSearchVendorMessages } from '../src/services/inbox-service.js';
 import { sendOnBehalf } from '../src/services/send-on-behalf-service.js';
+import { renewWatch, setupWatch, stopWatch } from '../src/services/watch-service.js';
+import { handleGmailPubSubWebhook, handleMicrosoftGraphWebhook } from '../src/services/webhook-service.js';
 
 function makeEvent(overrides: Partial<APIGatewayProxyEventV2> = {}): APIGatewayProxyEventV2 {
   return {
@@ -212,6 +226,142 @@ describe('handler - routing', () => {
     const res = await handler(event);
     expect(res.statusCode).toBe(200);
     expect(inboxChanges).toHaveBeenCalledOnce();
+  });
+
+  it('routes POST /watches/setup to setupWatch', async () => {
+    const event = makeEvent({
+      rawPath: '/watches/setup',
+      requestContext: {
+        ...makeEvent().requestContext,
+        http: {
+          method: 'POST',
+          path: '/watches/setup',
+          protocol: 'HTTP/1.1',
+          sourceIp: '1.2.3.4',
+          userAgent: 'test',
+        },
+      },
+      body: makeBody({
+        provider: 'gmail',
+        accessToken: 'tok',
+        email: 'customer@example.com',
+        connectionUuid: 'connection-1',
+      }),
+    });
+    const res = await handler(event);
+    expect(res.statusCode).toBe(200);
+    expect(setupWatch).toHaveBeenCalledOnce();
+  });
+
+  it('routes POST /watches/renew to renewWatch', async () => {
+    const event = makeEvent({
+      rawPath: '/watches/renew',
+      requestContext: {
+        ...makeEvent().requestContext,
+        http: {
+          method: 'POST',
+          path: '/watches/renew',
+          protocol: 'HTTP/1.1',
+          sourceIp: '1.2.3.4',
+          userAgent: 'test',
+        },
+      },
+      body: makeBody({
+        provider: 'microsoft',
+        accessToken: 'tok',
+        email: 'customer@example.com',
+        connectionUuid: 'connection-1',
+        providerSubscriptionId: 'sub-1',
+      }),
+    });
+    const res = await handler(event);
+    expect(res.statusCode).toBe(200);
+    expect(renewWatch).toHaveBeenCalledOnce();
+  });
+
+  it('routes POST /watches/stop to stopWatch', async () => {
+    const event = makeEvent({
+      rawPath: '/watches/stop',
+      requestContext: {
+        ...makeEvent().requestContext,
+        http: {
+          method: 'POST',
+          path: '/watches/stop',
+          protocol: 'HTTP/1.1',
+          sourceIp: '1.2.3.4',
+          userAgent: 'test',
+        },
+      },
+      body: makeBody({ provider: 'microsoft', accessToken: 'tok', providerSubscriptionId: 'sub-1' }),
+    });
+    const res = await handler(event);
+    expect(res.statusCode).toBe(200);
+    expect(stopWatch).toHaveBeenCalledOnce();
+    expect(JSON.parse(res.body ?? '{}')).toEqual({ stopped: true });
+  });
+
+  it('answers Microsoft validationToken challenges without internal API auth', async () => {
+    process.env.EMAIL_SERVICE_API_KEY = '/some/param';
+    const event = makeEvent({
+      rawPath: '/webhooks/microsoft/graph',
+      rawQueryString: 'validationToken=challenge-token',
+      requestContext: {
+        ...makeEvent().requestContext,
+        http: {
+          method: 'POST',
+          path: '/webhooks/microsoft/graph',
+          protocol: 'HTTP/1.1',
+          sourceIp: '1.2.3.4',
+          userAgent: 'test',
+        },
+      },
+    });
+    const res = await handler(event);
+    expect(res.statusCode).toBe(200);
+    expect(res.headers?.['Content-Type']).toBe('text/plain');
+    expect(res.body).toBe('challenge-token');
+  });
+
+  it('routes Gmail Pub/Sub webhooks without internal API auth', async () => {
+    process.env.EMAIL_SERVICE_API_KEY = '/some/param';
+    const event = makeEvent({
+      rawPath: '/webhooks/gmail/pubsub',
+      requestContext: {
+        ...makeEvent().requestContext,
+        http: {
+          method: 'POST',
+          path: '/webhooks/gmail/pubsub',
+          protocol: 'HTTP/1.1',
+          sourceIp: '1.2.3.4',
+          userAgent: 'test',
+        },
+      },
+      body: makeBody({ message: { data: 'abc' } }),
+    });
+    const res = await handler(event);
+    expect(res.statusCode).toBe(202);
+    expect(handleGmailPubSubWebhook).toHaveBeenCalledOnce();
+  });
+
+  it('routes Microsoft Graph webhooks without internal API auth', async () => {
+    process.env.EMAIL_SERVICE_API_KEY = '/some/param';
+    const event = makeEvent({
+      rawPath: '/webhooks/microsoft/graph',
+      requestContext: {
+        ...makeEvent().requestContext,
+        http: {
+          method: 'POST',
+          path: '/webhooks/microsoft/graph',
+          protocol: 'HTTP/1.1',
+          sourceIp: '1.2.3.4',
+          userAgent: 'test',
+        },
+      },
+      body: makeBody({ value: [] }),
+    });
+    const res = await handler(event);
+    expect(res.statusCode).toBe(202);
+    expect(handleMicrosoftGraphWebhook).toHaveBeenCalledOnce();
   });
 
   it('returns 404 for unknown path', async () => {

@@ -12,6 +12,9 @@ function jsonResponse(body: unknown, init: ResponseInit = {}) {
 describe('microsoftAdapter', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    delete process.env.MICROSOFT_GRAPH_NOTIFICATION_URL;
+    delete process.env.MICROSOFT_GRAPH_LIFECYCLE_URL;
+    delete process.env.MICROSOFT_GRAPH_CLIENT_STATE_SECRET;
   });
 
   it('lists inbox messages through Graph and normalizes summaries', async () => {
@@ -118,5 +121,80 @@ describe('microsoftAdapter', () => {
     expect(decodedBody).toContain('To: vendor@example.com');
     expect(decodedBody).toContain('In-Reply-To: <previous@example.com>');
     expect(result).toEqual({ messageId: null, threadId: 'conversation-1' });
+  });
+
+  it('creates Microsoft Graph mail subscriptions', async () => {
+    process.env.MICROSOFT_GRAPH_NOTIFICATION_URL = 'https://example.com/webhooks/microsoft/graph';
+    process.env.MICROSOFT_GRAPH_LIFECYCLE_URL = 'https://example.com/webhooks/microsoft/lifecycle';
+    process.env.MICROSOFT_GRAPH_CLIENT_STATE_SECRET = 'test-secret';
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        id: 'subscription-1',
+        expirationDateTime: '2026-06-28T12:00:00Z',
+      })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await microsoftAdapter.setupWatch({
+      provider: 'microsoft',
+      accessToken: 'access-token',
+      email: 'customer@example.com',
+      connectionUuid: 'connection-uuid',
+    });
+
+    const request = fetchMock.mock.calls[0][1];
+    const body = JSON.parse(String(request?.body));
+
+    expect(String(fetchMock.mock.calls[0][0])).toBe('https://graph.microsoft.com/v1.0/subscriptions');
+    expect(request?.method).toBe('POST');
+    expect(body).toMatchObject({
+      changeType: 'created',
+      notificationUrl: 'https://example.com/webhooks/microsoft/graph',
+      lifecycleNotificationUrl: 'https://example.com/webhooks/microsoft/lifecycle',
+      resource: "me/mailFolders('Inbox')/messages",
+    });
+    expect(body.clientState.length).toBeLessThan(128);
+    expect(result.providerSubscriptionId).toBe('subscription-1');
+    expect(result.expiresAt).toBe('2026-06-28T12:00:00Z');
+  });
+
+  it('renews Microsoft Graph mail subscriptions', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        id: 'subscription-1',
+        expirationDateTime: '2026-06-28T12:00:00Z',
+      })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await microsoftAdapter.renewWatch({
+      provider: 'microsoft',
+      accessToken: 'access-token',
+      email: 'customer@example.com',
+      connectionUuid: 'connection-uuid',
+      providerSubscriptionId: 'subscription-1',
+    });
+
+    const request = fetchMock.mock.calls[0][1];
+    const body = JSON.parse(String(request?.body));
+
+    expect(String(fetchMock.mock.calls[0][0])).toBe('https://graph.microsoft.com/v1.0/subscriptions/subscription-1');
+    expect(request?.method).toBe('PATCH');
+    expect(body.expirationDateTime).toBeTruthy();
+    expect(result.providerSubscriptionId).toBe('subscription-1');
+  });
+
+  it('stops Microsoft Graph mail subscriptions', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await microsoftAdapter.stopWatch({
+      provider: 'microsoft',
+      accessToken: 'access-token',
+      providerSubscriptionId: 'subscription-1',
+    });
+
+    expect(String(fetchMock.mock.calls[0][0])).toBe('https://graph.microsoft.com/v1.0/subscriptions/subscription-1');
+    expect(fetchMock.mock.calls[0][1]?.method).toBe('DELETE');
   });
 });

@@ -6,6 +6,9 @@ import {
   validateInboxList,
   validateInboxGetMessage,
   validateInboxSearchVendorMessages,
+  validateWatchRenew,
+  validateWatchSetup,
+  validateWatchStop,
 } from '../src/utils/request-validation.js';
 
 describe('parseBody', () => {
@@ -199,5 +202,71 @@ describe('validateInboxChanges', () => {
 
   it('throws on missing accessToken', () => {
     expect(() => validateInboxChanges({ provider: 'gmail' })).toThrow('Missing or invalid');
+  });
+});
+
+describe('validateWatchSetup', () => {
+  const valid = {
+    provider: 'gmail',
+    accessToken: 'tok',
+    email: 'customer@example.com',
+    connectionUuid: 'connection-1',
+  };
+
+  it('accepts a valid setup payload', () => {
+    expect(validateWatchSetup(valid)).toMatchObject(valid);
+  });
+
+  it('accepts callbackUrl when present', () => {
+    const result = validateWatchSetup({ ...valid, callbackUrl: 'https://example.com/webhook' });
+    expect(result.callbackUrl).toBe('https://example.com/webhook');
+  });
+
+  it('throws when connectionUuid is missing', () => {
+    expect(() => validateWatchSetup({ ...valid, connectionUuid: undefined })).toThrow('Missing or invalid');
+  });
+});
+
+describe('validateWatchRenew', () => {
+  const valid = {
+    provider: 'microsoft',
+    accessToken: 'tok',
+    email: 'customer@example.com',
+    connectionUuid: 'connection-1',
+    providerSubscriptionId: 'subscription-1',
+  };
+
+  it('accepts a valid renew payload', () => {
+    expect(validateWatchRenew(valid)).toMatchObject(valid);
+  });
+
+  it('allows providerSubscriptionId to be omitted for Gmail renewals', () => {
+    const result = validateWatchRenew({
+      provider: 'gmail',
+      accessToken: 'tok',
+      email: 'customer@example.com',
+      connectionUuid: 'connection-1',
+    });
+    expect(result.providerSubscriptionId).toBeUndefined();
+  });
+});
+
+describe('validateWatchStop', () => {
+  it('accepts a valid stop payload', () => {
+    expect(
+      validateWatchStop({
+        provider: 'microsoft',
+        accessToken: 'tok',
+        providerSubscriptionId: 'subscription-1',
+      })
+    ).toMatchObject({
+      provider: 'microsoft',
+      accessToken: 'tok',
+      providerSubscriptionId: 'subscription-1',
+    });
+  });
+
+  it('throws when accessToken is missing', () => {
+    expect(() => validateWatchStop({ provider: 'gmail' })).toThrow('Missing or invalid');
   });
 });
