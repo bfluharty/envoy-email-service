@@ -17,6 +17,7 @@ import {
 import { EmailProviderAdapter } from '../email-provider-adapter.js';
 import { logger } from '../../utils/logger.js';
 import { getConfiguredParameterValue } from '../../utils/configured-parameter.js';
+import { extractLatestEmailBody } from '../../utils/email-body.js';
 
 const DEFAULT_MAX = 50;
 
@@ -158,7 +159,7 @@ async function getGmailMessage(input: InboxGetMessageRequest): Promise<InboxGetM
       to: getGmailHeader(headers, 'To'),
       cc: getGmailHeader(headers, 'Cc') || undefined,
       subject: getGmailHeader(headers, 'Subject'),
-      body: getGmailBodyText(payload),
+      body: extractLatestEmailBody(getGmailBodyText(payload)),
       date: dateHeader ? toIsoDateOrNow(dateHeader) : new Date().toISOString(),
       messageId: messageIdHeader || undefined,
       inReplyTo: inReplyToHeader || undefined,

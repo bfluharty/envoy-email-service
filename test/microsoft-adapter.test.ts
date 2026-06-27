@@ -94,6 +94,32 @@ describe('microsoftAdapter', () => {
     });
   });
 
+  it('strips quoted HTML history from message bodies', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        id: 'message-1',
+        conversationId: 'conversation-1',
+        from: { emailAddress: { address: 'vendor@example.com' } },
+        toRecipients: [{ emailAddress: { address: 'customer@example.com' } }],
+        subject: 'Reply',
+        receivedDateTime: '2026-06-26T12:00:00Z',
+        body: {
+          content:
+            '<html><body><div>thanks for your message</div><br><div class="gmail_quote">On Sat, Jun 27, 2026 at 3:22 PM Customer wrote:<blockquote>test</blockquote></div></body></html>',
+        },
+      })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await microsoftAdapter.getMessage({
+      provider: 'microsoft',
+      accessToken: 'access-token',
+      messageId: 'message-1',
+    });
+
+    expect(result.message?.body).toBe('thanks for your message');
+  });
+
   it('sends MIME mail through Graph sendMail', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response('', { status: 202 }));
     vi.stubGlobal('fetch', fetchMock);

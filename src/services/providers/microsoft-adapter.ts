@@ -17,6 +17,7 @@ import {
 import { EmailProviderAdapter } from '../email-provider-adapter.js';
 import { logger } from '../../utils/logger.js';
 import { createMicrosoftClientState } from '../../utils/microsoft-client-state.js';
+import { extractLatestEmailBody } from '../../utils/email-body.js';
 
 const GRAPH_ROOT = 'https://graph.microsoft.com/v1.0';
 const DEFAULT_MAX = 50;
@@ -112,7 +113,7 @@ function toInboxMessage(message: GraphMessage): InboxMessage {
     to: recipientsToString(message.toRecipients),
     cc: recipientsToString(message.ccRecipients) || undefined,
     subject: message.subject ?? '',
-    body: message.body?.content ?? '',
+    body: extractLatestEmailBody(message.body?.content ?? ''),
     date: graphDate(message),
     messageId: message.internetMessageId || undefined,
     inReplyTo: inReplyTo || undefined,
