@@ -274,6 +274,7 @@ export const gmailAdapter: EmailProviderAdapter = {
       const history = await gmail.users.history.list({
         userId: 'me',
         startHistoryId: input.cursor,
+        labelId: 'INBOX',
         historyTypes: ['messageAdded'],
       });
       const seenIds = new Set<string>();

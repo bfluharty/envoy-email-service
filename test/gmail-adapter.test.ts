@@ -93,6 +93,12 @@ describe('gmailAdapter', () => {
       cursor: '100',
     });
 
+    expect(mocks.gmailClient.users.history.list).toHaveBeenCalledWith({
+      userId: 'me',
+      startHistoryId: '100',
+      labelId: 'INBOX',
+      historyTypes: ['messageAdded'],
+    });
     expect(result.messages).toEqual([
       {
         id: 'message-1',
