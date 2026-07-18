@@ -235,8 +235,9 @@ Request:
 Provider behavior:
 
 - Gmail searches all mail with `from:` and `to:` query clauses.
-- Microsoft searches `/me/messages` with OData filters for sender, recipients,
-  and CC recipients.
+- Microsoft searches `/me/messages` with Microsoft Graph `$search` over message
+  participants, then applies exact sender, recipient, CC, and date matching in
+  the service.
 
 ## Inbox Changes
 

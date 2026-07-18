@@ -59,6 +59,72 @@ describe('microsoftAdapter', () => {
     ]);
   });
 
+  it('searches vendor messages with Microsoft search instead of unsupported recipient filters', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        value: [
+          {
+            id: 'message-1',
+            conversationId: 'conversation-1',
+            from: { emailAddress: { name: 'Vendor', address: 'Vendor@Example.com' } },
+            toRecipients: [{ emailAddress: { address: 'customer@example.com' } }],
+            ccRecipients: [],
+            subject: 'Estimate',
+            receivedDateTime: '2026-06-26T12:00:00Z',
+            bodyPreview: 'Hello',
+          },
+          {
+            id: 'message-2',
+            conversationId: 'conversation-2',
+            from: { emailAddress: { address: 'customer@example.com' } },
+            toRecipients: [{ emailAddress: { address: 'vendor@example.com' } }],
+            ccRecipients: [],
+            subject: 'Reply',
+            receivedDateTime: '2026-06-25T12:00:00Z',
+          },
+          {
+            id: 'message-3',
+            conversationId: 'conversation-3',
+            from: { emailAddress: { address: 'someone@example.com' } },
+            toRecipients: [{ emailAddress: { address: 'customer@example.com' } }],
+            ccRecipients: [],
+            subject: 'Search false positive',
+            receivedDateTime: '2026-06-26T12:00:00Z',
+          },
+        ],
+      })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await microsoftAdapter.searchVendorMessages({
+      provider: 'microsoft',
+      accessToken: 'access-token',
+      vendorEmails: ['vendor@example.com'],
+      maxResults: 10,
+      afterDate: '2026-06-26T00:00:00Z',
+    });
+
+    const url = new URL(String(fetchMock.mock.calls[0][0]));
+
+    expect(url.pathname).toBe('/v1.0/me/messages');
+    expect(url.searchParams.get('$search')).toBe('"participants:vendor@example.com"');
+    expect(url.searchParams.get('$filter')).toBeNull();
+    expect(url.searchParams.get('$orderby')).toBeNull();
+    expect(url.searchParams.get('$top')).toBe('50');
+    expect(url.searchParams.get('$select')).toContain('ccRecipients');
+    expect(result.messages).toEqual([
+      {
+        id: 'message-1',
+        threadId: 'conversation-1',
+        from: 'Vendor <Vendor@Example.com>',
+        to: 'customer@example.com',
+        subject: 'Estimate',
+        date: '2026-06-26T12:00:00.000Z',
+        snippet: 'Hello',
+      },
+    ]);
+  });
+
   it('gets a message and maps internet reply headers', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({

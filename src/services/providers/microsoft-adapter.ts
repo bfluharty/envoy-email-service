@@ -21,6 +21,7 @@ import { extractLatestEmailBody } from '../../utils/email-body.js';
 
 const GRAPH_ROOT = 'https://graph.microsoft.com/v1.0';
 const DEFAULT_MAX = 50;
+const MICROSOFT_VENDOR_SEARCH_FETCH_MULTIPLIER = 5;
 const MICROSOFT_SUBSCRIPTION_TTL_MS = 2 * 24 * 60 * 60 * 1000;
 
 interface GraphRecipient {
@@ -76,6 +77,10 @@ function recipientToString(recipient: GraphRecipient | undefined): string {
 
 function recipientsToString(recipients: GraphRecipient[] | undefined): string {
   return recipients?.map(recipientToString).filter(Boolean).join(', ') ?? '';
+}
+
+function recipientAddress(recipient: GraphRecipient | undefined): string {
+  return recipient?.emailAddress?.address?.trim().toLowerCase() ?? '';
 }
 
 function graphDate(message: GraphMessage): string {
@@ -174,6 +179,10 @@ function maxResults(value: number | undefined): number {
   return Math.min(value ?? DEFAULT_MAX, 100);
 }
 
+function vendorSearchFetchSize(value: number | undefined): number {
+  return Math.min(maxResults(value) * MICROSOFT_VENDOR_SEARCH_FETCH_MULTIPLIER, 1000);
+}
+
 function graphListParams(input: InboxListRequest): URLSearchParams {
   const dateField = mailboxDateField(input.mailbox);
   const params = new URLSearchParams({
@@ -198,39 +207,66 @@ async function listMicrosoftMessages(input: InboxListRequest): Promise<InboxList
   return { messages: (result.value ?? []).map(toSummary).filter((message) => message.id) };
 }
 
-function escapeODataString(value: string): string {
-  return value.replace(/'/g, "''");
+function normalizeVendorEmails(vendorEmails: string[]): string[] {
+  return Array.from(new Set(vendorEmails.map((email) => email.trim().toLowerCase()).filter(Boolean)));
 }
 
-function vendorFilter(vendorEmails: string[]): string {
-  return vendorEmails
-    .map((email) => {
-      const escaped = escapeODataString(email);
-      return [
-        `from/emailAddress/address eq '${escaped}'`,
-        `toRecipients/any(r:r/emailAddress/address eq '${escaped}')`,
-        `ccRecipients/any(r:r/emailAddress/address eq '${escaped}')`,
-      ].join(' or ');
-    })
-    .map((filter) => `(${filter})`)
-    .join(' or ');
+function escapeMicrosoftSearchClauseValue(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
+function vendorSearchQuery(vendorEmails: string[]): string {
+  return vendorEmails.map((email) => `"participants:${escapeMicrosoftSearchClauseValue(email)}"`).join(' OR ');
+}
+
+function recipientListMatchesVendor(recipients: GraphRecipient[] | undefined, vendorEmails: Set<string>): boolean {
+  return recipients?.some((recipient) => vendorEmails.has(recipientAddress(recipient))) ?? false;
+}
+
+function messageMatchesVendor(message: GraphMessage, vendorEmails: Set<string>): boolean {
+  return (
+    vendorEmails.has(recipientAddress(message.from)) ||
+    recipientListMatchesVendor(message.toRecipients, vendorEmails) ||
+    recipientListMatchesVendor(message.ccRecipients, vendorEmails)
+  );
+}
+
+function messageMatchesAfterDate(message: GraphMessage, afterDate: string | undefined): boolean {
+  if (!afterDate) return true;
+
+  const after = new Date(afterDate).getTime();
+  if (Number.isNaN(after)) return true;
+
+  const value = message.receivedDateTime ?? message.sentDateTime ?? message.createdDateTime;
+  if (!value) return false;
+
+  const messageDate = new Date(value).getTime();
+  return !Number.isNaN(messageDate) && messageDate >= after;
 }
 
 async function searchMicrosoftVendorMessages(input: InboxSearchVendorMessagesRequest): Promise<InboxListResponse> {
-  if (input.vendorEmails.length === 0) {
+  const vendorEmails = normalizeVendorEmails(input.vendorEmails);
+  if (vendorEmails.length === 0) {
     return { messages: [] };
   }
 
-  const params = graphListParams({ ...input, mailbox: 'all' });
-  const filters = [];
-  if (input.afterDate) {
-    filters.push(`receivedDateTime ge ${new Date(input.afterDate).toISOString()}`);
-  }
-  filters.push(vendorFilter(input.vendorEmails));
-  params.set('$filter', filters.map((filter) => `(${filter})`).join(' and '));
+  const params = new URLSearchParams({
+    $top: String(vendorSearchFetchSize(input.maxResults)),
+    $search: vendorSearchQuery(vendorEmails),
+    $select:
+      'id,conversationId,from,toRecipients,ccRecipients,subject,receivedDateTime,sentDateTime,createdDateTime,bodyPreview,internetMessageId',
+  });
 
   const result = await graphRequest<GraphListResponse>(input.accessToken, '/me/messages', { params });
-  return { messages: (result.value ?? []).map(toSummary).filter((message) => message.id) };
+  const vendorEmailSet = new Set(vendorEmails);
+  return {
+    messages: (result.value ?? [])
+      .filter((message) => messageMatchesVendor(message, vendorEmailSet))
+      .filter((message) => messageMatchesAfterDate(message, input.afterDate))
+      .map(toSummary)
+      .filter((message) => message.id)
+      .slice(0, maxResults(input.maxResults)),
+  };
 }
 
 async function getMicrosoftGraphMessage(accessToken: string, messageId: string): Promise<GraphMessage | null> {

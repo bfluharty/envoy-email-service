@@ -144,8 +144,8 @@ Provider behavior:
 
 - Gmail builds a query with `from:<email>` and `to:<email>` clauses and searches
   all mail.
-- Microsoft builds OData filters over sender, `toRecipients`, and
-  `ccRecipients`.
+- Microsoft uses Graph `$search` over participants, then applies exact sender,
+  recipient, CC, and date matching in the service.
 - Empty Microsoft vendor-email searches return an empty message list.
 
 ## Changes Contract
