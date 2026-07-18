@@ -23,6 +23,8 @@ const GRAPH_ROOT = 'https://graph.microsoft.com/v1.0';
 const DEFAULT_MAX = 50;
 const MICROSOFT_VENDOR_SEARCH_FETCH_MULTIPLIER = 5;
 const MICROSOFT_SUBSCRIPTION_TTL_MS = 2 * 24 * 60 * 60 * 1000;
+const MICROSOFT_MESSAGE_SUMMARY_SELECT =
+  'id,conversationId,from,toRecipients,ccRecipients,subject,receivedDateTime,sentDateTime,createdDateTime,bodyPreview,internetMessageId';
 
 interface GraphRecipient {
   emailAddress?: {
@@ -63,6 +65,18 @@ interface GraphSubscription {
   id?: string;
   expirationDateTime?: string;
   clientState?: string;
+}
+
+class MicrosoftGraphRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly path: string,
+    readonly body: string
+  ) {
+    super(message);
+    this.name = 'MicrosoftGraphRequestError';
+  }
 }
 
 function headerValue(value: string): string {
@@ -169,7 +183,7 @@ async function graphRequest<T>(
   if (!res.ok) {
     const body = await res.text();
     logger.error('Microsoft Graph request failed', { status: res.status, path, body });
-    throw new Error(`Microsoft Graph request failed: ${res.status}`);
+    throw new MicrosoftGraphRequestError(`Microsoft Graph request failed: ${res.status}`, res.status, path, body);
   }
 
   return (await res.json()) as T;
@@ -187,8 +201,7 @@ function graphListParams(input: InboxListRequest): URLSearchParams {
   const dateField = mailboxDateField(input.mailbox);
   const params = new URLSearchParams({
     $top: String(maxResults(input.maxResults)),
-    $select:
-      'id,conversationId,from,toRecipients,subject,receivedDateTime,sentDateTime,createdDateTime,bodyPreview,internetMessageId',
+    $select: MICROSOFT_MESSAGE_SUMMARY_SELECT,
     $orderby: `${dateField} desc`,
   });
 
@@ -219,6 +232,28 @@ function vendorSearchQuery(vendorEmails: string[]): string {
   return vendorEmails.map((email) => `"participants:${escapeMicrosoftSearchClauseValue(email)}"`).join(' OR ');
 }
 
+function microsoftVendorSearchParams(input: InboxSearchVendorMessagesRequest, vendorEmails: string[]): URLSearchParams {
+  return new URLSearchParams({
+    $top: String(vendorSearchFetchSize(input.maxResults)),
+    $search: vendorSearchQuery(vendorEmails),
+    $select: MICROSOFT_MESSAGE_SUMMARY_SELECT,
+  });
+}
+
+function microsoftRecentVendorScanParams(input: InboxSearchVendorMessagesRequest): URLSearchParams {
+  const params = new URLSearchParams({
+    $top: String(vendorSearchFetchSize(input.maxResults)),
+    $select: MICROSOFT_MESSAGE_SUMMARY_SELECT,
+    $orderby: 'receivedDateTime desc',
+  });
+
+  if (input.afterDate) {
+    params.set('$filter', `receivedDateTime ge ${new Date(input.afterDate).toISOString()}`);
+  }
+
+  return params;
+}
+
 function recipientListMatchesVendor(recipients: GraphRecipient[] | undefined, vendorEmails: Set<string>): boolean {
   return recipients?.some((recipient) => vendorEmails.has(recipientAddress(recipient))) ?? false;
 }
@@ -244,29 +279,82 @@ function messageMatchesAfterDate(message: GraphMessage, afterDate: string | unde
   return !Number.isNaN(messageDate) && messageDate >= after;
 }
 
+function messageDateMillis(message: GraphMessage): number {
+  const value = message.receivedDateTime ?? message.sentDateTime ?? message.createdDateTime;
+  const parsed = value ? new Date(value).getTime() : Number.NaN;
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function uniqueGraphMessages(messages: GraphMessage[]): GraphMessage[] {
+  const seen = new Set<string>();
+  return messages.filter((message) => {
+    if (!message.id) return false;
+    if (seen.has(message.id)) return false;
+    seen.add(message.id);
+    return true;
+  });
+}
+
+async function searchMicrosoftVendorCandidates(
+  input: InboxSearchVendorMessagesRequest,
+  vendorEmails: string[]
+): Promise<GraphMessage[]> {
+  try {
+    const result = await graphRequest<GraphListResponse>(input.accessToken, '/me/messages', {
+      params: microsoftVendorSearchParams(input, vendorEmails),
+    });
+    return result.value ?? [];
+  } catch (err) {
+    if (err instanceof MicrosoftGraphRequestError && err.status === 400) {
+      logger.warn('Microsoft Graph vendor search failed; falling back to recent message scan', {
+        provider: 'microsoft',
+        status: err.status,
+        path: err.path,
+        body: err.body,
+      });
+      return [];
+    }
+
+    throw err;
+  }
+}
+
 async function searchMicrosoftVendorMessages(input: InboxSearchVendorMessagesRequest): Promise<InboxListResponse> {
   const vendorEmails = normalizeVendorEmails(input.vendorEmails);
   if (vendorEmails.length === 0) {
     return { messages: [] };
   }
 
-  const params = new URLSearchParams({
-    $top: String(vendorSearchFetchSize(input.maxResults)),
-    $search: vendorSearchQuery(vendorEmails),
-    $select:
-      'id,conversationId,from,toRecipients,ccRecipients,subject,receivedDateTime,sentDateTime,createdDateTime,bodyPreview,internetMessageId',
+  const [searchMessages, recentMessagesResult] = await Promise.all([
+    searchMicrosoftVendorCandidates(input, vendorEmails),
+    graphRequest<GraphListResponse>(input.accessToken, '/me/messages', {
+      params: microsoftRecentVendorScanParams(input),
+    }),
+  ]);
+  const recentMessages = recentMessagesResult.value ?? [];
+  const candidates = uniqueGraphMessages([...searchMessages, ...recentMessages]);
+  const vendorEmailSet = new Set(vendorEmails);
+  const matchedMessages = candidates
+    .filter((message) => messageMatchesVendor(message, vendorEmailSet))
+    .filter((message) => messageMatchesAfterDate(message, input.afterDate))
+    .sort((left, right) => messageDateMillis(right) - messageDateMillis(left));
+  const messages = matchedMessages
+    .map(toSummary)
+    .filter((message) => message.id)
+    .slice(0, maxResults(input.maxResults));
+
+  logger.info('microsoft vendor message search complete', {
+    provider: 'microsoft',
+    vendorCount: vendorEmails.length,
+    searchCount: searchMessages.length,
+    recentCount: recentMessages.length,
+    candidateCount: candidates.length,
+    matchedCount: matchedMessages.length,
+    returnedCount: messages.length,
+    hasAfterDate: Boolean(input.afterDate),
   });
 
-  const result = await graphRequest<GraphListResponse>(input.accessToken, '/me/messages', { params });
-  const vendorEmailSet = new Set(vendorEmails);
-  return {
-    messages: (result.value ?? [])
-      .filter((message) => messageMatchesVendor(message, vendorEmailSet))
-      .filter((message) => messageMatchesAfterDate(message, input.afterDate))
-      .map(toSummary)
-      .filter((message) => message.id)
-      .slice(0, maxResults(input.maxResults)),
-  };
+  return { messages };
 }
 
 async function getMicrosoftGraphMessage(accessToken: string, messageId: string): Promise<GraphMessage | null> {
@@ -278,7 +366,7 @@ async function getMicrosoftGraphMessage(accessToken: string, messageId: string):
       }),
     });
   } catch (err) {
-    if (err instanceof Error && err.message.endsWith(': 404')) {
+    if (err instanceof MicrosoftGraphRequestError && err.status === 404) {
       return null;
     }
 
