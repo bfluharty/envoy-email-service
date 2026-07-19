@@ -59,6 +59,173 @@ describe('microsoftAdapter', () => {
     ]);
   });
 
+  it('searches vendor messages with Microsoft search instead of unsupported recipient filters', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          value: [
+            {
+              id: 'message-1',
+              conversationId: 'conversation-1',
+              from: { emailAddress: { name: 'Vendor', address: 'Vendor@Example.com' } },
+              toRecipients: [{ emailAddress: { address: 'customer@example.com' } }],
+              ccRecipients: [],
+              subject: 'Estimate',
+              receivedDateTime: '2026-06-26T12:00:00Z',
+              bodyPreview: 'Hello',
+            },
+            {
+              id: 'message-2',
+              conversationId: 'conversation-2',
+              from: { emailAddress: { address: 'customer@example.com' } },
+              toRecipients: [{ emailAddress: { address: 'vendor@example.com' } }],
+              ccRecipients: [],
+              subject: 'Reply',
+              receivedDateTime: '2026-06-25T12:00:00Z',
+            },
+            {
+              id: 'message-3',
+              conversationId: 'conversation-3',
+              from: { emailAddress: { address: 'someone@example.com' } },
+              toRecipients: [{ emailAddress: { address: 'customer@example.com' } }],
+              ccRecipients: [],
+              subject: 'Search false positive',
+              receivedDateTime: '2026-06-26T12:00:00Z',
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(jsonResponse({ value: [] }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await microsoftAdapter.searchVendorMessages({
+      provider: 'microsoft',
+      accessToken: 'access-token',
+      vendorEmails: ['vendor@example.com'],
+      maxResults: 10,
+      afterDate: '2026-06-26T00:00:00Z',
+    });
+
+    const searchUrl = new URL(String(fetchMock.mock.calls[0][0]));
+    const recentUrl = new URL(String(fetchMock.mock.calls[1][0]));
+
+    expect(searchUrl.pathname).toBe('/v1.0/me/messages');
+    expect(searchUrl.searchParams.get('$search')).toBe('"participants:vendor@example.com"');
+    expect(searchUrl.searchParams.get('$filter')).toBeNull();
+    expect(searchUrl.searchParams.get('$orderby')).toBeNull();
+    expect(searchUrl.searchParams.get('$top')).toBe('50');
+    expect(searchUrl.searchParams.get('$select')).toContain('ccRecipients');
+    expect(recentUrl.pathname).toBe('/v1.0/me/messages');
+    expect(recentUrl.searchParams.get('$search')).toBeNull();
+    expect(recentUrl.searchParams.get('$filter')).toBe('receivedDateTime ge 2026-06-26T00:00:00.000Z');
+    expect(recentUrl.searchParams.get('$orderby')).toBe('receivedDateTime desc');
+    expect(result.messages).toEqual([
+      {
+        id: 'message-1',
+        threadId: 'conversation-1',
+        from: 'Vendor <Vendor@Example.com>',
+        to: 'customer@example.com',
+        subject: 'Estimate',
+        date: '2026-06-26T12:00:00.000Z',
+        snippet: 'Hello',
+      },
+    ]);
+  });
+
+  it('falls back to recent Microsoft messages when vendor search misses a new reply', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ value: [] }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          value: [
+            {
+              id: 'message-1',
+              conversationId: 'conversation-1',
+              from: { emailAddress: { name: 'Vendor', address: 'vendor@example.com' } },
+              toRecipients: [{ emailAddress: { address: 'customer@example.com' } }],
+              ccRecipients: [],
+              subject: 'Reply',
+              receivedDateTime: '2026-06-26T12:00:00Z',
+              bodyPreview: 'Hello',
+            },
+          ],
+        })
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await microsoftAdapter.searchVendorMessages({
+      provider: 'microsoft',
+      accessToken: 'access-token',
+      vendorEmails: ['vendor@example.com'],
+      maxResults: 10,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.messages).toEqual([
+      {
+        id: 'message-1',
+        threadId: 'conversation-1',
+        from: 'Vendor <vendor@example.com>',
+        to: 'customer@example.com',
+        subject: 'Reply',
+        date: '2026-06-26T12:00:00.000Z',
+        snippet: 'Hello',
+      },
+    ]);
+  });
+
+  it('falls back to recent Microsoft messages when Graph vendor search returns 400', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(
+          {
+            error: {
+              code: 'ErrorInvalidUrlQueryFilter',
+              message: 'The query filter contains one or more invalid nodes.',
+            },
+          },
+          { status: 400 }
+        )
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          value: [
+            {
+              id: 'message-1',
+              conversationId: 'conversation-1',
+              from: { emailAddress: { address: 'customer@example.com' } },
+              toRecipients: [{ emailAddress: { address: 'vendor@example.com' } }],
+              ccRecipients: [],
+              subject: 'Outbound',
+              sentDateTime: '2026-06-26T12:00:00Z',
+            },
+          ],
+        })
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await microsoftAdapter.searchVendorMessages({
+      provider: 'microsoft',
+      accessToken: 'access-token',
+      vendorEmails: ['vendor@example.com'],
+      maxResults: 10,
+    });
+
+    expect(result.messages).toEqual([
+      {
+        id: 'message-1',
+        threadId: 'conversation-1',
+        from: 'customer@example.com',
+        to: 'vendor@example.com',
+        subject: 'Outbound',
+        date: '2026-06-26T12:00:00.000Z',
+      },
+    ]);
+  });
+
   it('gets a message and maps internet reply headers', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({

@@ -80,6 +80,14 @@ function gmailExpirationToIso(expiration: string | number | null | undefined): s
   return new Date(value).toISOString();
 }
 
+function gmailErrorStatus(err: unknown): number | undefined {
+  return (err as { code?: number; status?: number })?.code ?? (err as { code?: number; status?: number })?.status;
+}
+
+function isGmailNotFoundError(err: unknown): boolean {
+  return gmailErrorStatus(err) === 404;
+}
+
 function mailboxQuery(mailbox: InboxListRequest['mailbox']): string[] {
   if (mailbox === 'sent') return ['in:sent'];
   if (mailbox === 'all') return [];
@@ -99,12 +107,22 @@ async function getMessageSummary(
 ): Promise<InboxMessageSummary | null> {
   if (!message.id) return null;
 
-  const meta = await gmail.users.messages.get({
-    userId: 'me',
-    id: message.id,
-    format: 'metadata',
-    metadataHeaders: ['From', 'To', 'Subject', 'Date'],
-  });
+  let meta: { data: gmail_v1.Schema$Message };
+  try {
+    meta = await gmail.users.messages.get({
+      userId: 'me',
+      id: message.id,
+      format: 'metadata',
+      metadataHeaders: ['From', 'To', 'Subject', 'Date'],
+    });
+  } catch (err) {
+    if (isGmailNotFoundError(err)) {
+      logger.warn('gmail message not found while summarizing', { provider: 'gmail', messageId: message.id });
+      return null;
+    }
+
+    throw err;
+  }
   const headers = meta.data.payload?.headers;
 
   return {
@@ -256,6 +274,7 @@ export const gmailAdapter: EmailProviderAdapter = {
       const history = await gmail.users.history.list({
         userId: 'me',
         startHistoryId: input.cursor,
+        labelId: 'INBOX',
         historyTypes: ['messageAdded'],
       });
       const seenIds = new Set<string>();
@@ -277,9 +296,7 @@ export const gmailAdapter: EmailProviderAdapter = {
     try {
       return await getGmailMessage(input);
     } catch (err) {
-      const status =
-        (err as { code?: number; status?: number })?.code ?? (err as { code?: number; status?: number })?.status;
-      if (status === 404) return { message: null };
+      if (isGmailNotFoundError(err)) return { message: null };
       logger.error('gmail getMessage failed', { provider: 'gmail', messageId: input.messageId, err });
       throw err;
     }
