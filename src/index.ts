@@ -20,7 +20,7 @@ import {
   ValidationError,
 } from './utils/request-validation.js';
 import { getDecryptedParameter } from './utils/parameter-store.js';
-import { logger } from './utils/logger.js';
+import { levelForStatusCode, logger } from './utils/logger.js';
 
 class UnauthorizedError extends Error {
   constructor() {
@@ -119,11 +119,12 @@ async function handlePublicWebhook(
   }
 }
 
-export async function handler(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> {
-  const path = event.requestContext?.http?.path ?? event.rawPath ?? '';
-  const method = event.requestContext?.http?.method ?? '';
-  const rawBody = getRawBody(event);
-
+async function routeRequest(
+  event: APIGatewayProxyEventV2,
+  path: string,
+  method: string,
+  rawBody: string | null
+): Promise<APIGatewayProxyStructuredResultV2> {
   if (method === 'GET' && path.endsWith('/health')) {
     return jsonResponse(200, { status: 'ok' });
   }
@@ -242,5 +243,26 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
 
     logger.error('Unhandled error in handler', { err, path });
     return jsonResponse(500, { error: 'Internal error' });
+  }
+}
+
+export async function handler(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> {
+  const startedAt = Date.now();
+  const path = event.requestContext?.http?.path ?? event.rawPath ?? '';
+  const method = event.requestContext?.http?.method ?? '';
+  const rawBody = getRawBody(event);
+  let statusCode = 500;
+
+  try {
+    const response = await routeRequest(event, path, method, rawBody);
+    statusCode = response.statusCode ?? 200;
+    return response;
+  } finally {
+    logger[levelForStatusCode(statusCode)]('email service request complete', {
+      path,
+      method,
+      statusCode,
+      durationMs: Date.now() - startedAt,
+    });
   }
 }

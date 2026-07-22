@@ -1,4 +1,4 @@
-type LogLevel = 'info' | 'warn' | 'error';
+export type LogLevel = 'info' | 'warn' | 'error';
 
 interface LogFields {
   provider?: string;
@@ -20,3 +20,15 @@ export const logger = {
   warn: (msg: string, fields?: LogFields) => log('warn', msg, fields),
   error: (msg: string, fields?: LogFields) => log('error', msg, fields),
 };
+
+export function levelForStatusCode(statusCode: number): LogLevel {
+  if (statusCode >= 500) {
+    return 'error';
+  }
+
+  if (statusCode >= 400) {
+    return 'warn';
+  }
+
+  return 'info';
+}
